@@ -6,6 +6,7 @@
 #include "UObject/Object.h"
 #include "InventoryItemFragment.generated.h"
 
+class UItemInstance;
 /**
  * 
  */
@@ -13,4 +14,11 @@ UCLASS(Blueprintable, BlueprintType, Abstract, DefaultToInstanced, EditInlineNew
 class DEMOBILLYHILL14_API UInventoryItemFragment : public UObject
 {
 	GENERATED_BODY()
+	
+public:
+	
+	UFUNCTION(BlueprintNativeEvent)
+	void OnInstanceCreated(UItemInstance* ItemInstance);
 };
+
+inline void UInventoryItemFragment::OnInstanceCreated_Implementation(UItemInstance* ItemInstance) {}
