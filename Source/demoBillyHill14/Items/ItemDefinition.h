@@ -7,6 +7,20 @@
 #include "ItemDefinition.generated.h"
 
 class UInventoryItemFragment; 
+
+UENUM(BlueprintType)
+enum class EItemRarity: uint8
+{
+	None,
+	Common,
+	Uncommon,
+	Rare,
+	Exotic,
+	Quest,
+	Pinnacle,
+	Relic
+};
+
 /**
  * 
  */
@@ -24,6 +38,9 @@ public:
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display")
 	TObjectPtr<UTexture2D> ItemIcon; 
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display")
+	EItemRarity Rarity = EItemRarity::None;
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Instanced, Category = "FragmentsArray")
 	TArray<TObjectPtr<UInventoryItemFragment>> Fragments;
