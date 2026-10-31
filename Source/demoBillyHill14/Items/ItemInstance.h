@@ -29,6 +29,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Item Stats")
 	void SetStatValue(FGameplayTag StatTag, float StatValue);
 	
-	UFUNCTION(BlueprintCallable, Category = "Item Instances")
-	void Initialize(TSubclassOf<UItemDefinition> ItemDef);
+	UFUNCTION(BlueprintCallable, Category = "Item Instances", meta = (AutoCreateRefTerm = "InitialStats"))
+	void Initialize(TSubclassOf<UItemDefinition> ItemDef, const TMap<FGameplayTag, float>& InitialStats);
 };

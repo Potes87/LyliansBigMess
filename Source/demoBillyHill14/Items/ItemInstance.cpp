@@ -15,7 +15,7 @@ void UItemInstance::SetStatValue(FGameplayTag StatTag, float StatValue)
 	StatsMap.Add(StatTag, StatValue);
 }
 
-void UItemInstance::Initialize(TSubclassOf<UItemDefinition> ItemDef)
+void UItemInstance::Initialize(TSubclassOf<UItemDefinition> ItemDef, const TMap<FGameplayTag, float>& InitialStats)
 {
 	if (!ItemDef) return;
 	
@@ -26,6 +26,11 @@ void UItemInstance::Initialize(TSubclassOf<UItemDefinition> ItemDef)
 	for (const TObjectPtr<UInventoryItemFragment>& Fragment : ItemCDO->Fragments)
 	{
 		Fragment->OnInstanceCreated(this);
+	}
+	
+	if (!InitialStats.IsEmpty())
+	{
+		StatsMap = InitialStats;
 	}
 	
 }
