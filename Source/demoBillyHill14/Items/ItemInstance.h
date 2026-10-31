@@ -28,4 +28,7 @@ public:
 	
 	UFUNCTION(BlueprintCallable, Category = "Item Stats")
 	void SetStatValue(FGameplayTag StatTag, float StatValue);
+	
+	UFUNCTION(BlueprintCallable, Category = "Item Instances")
+	void Initialize(TSubclassOf<UItemDefinition> ItemDef);
 };

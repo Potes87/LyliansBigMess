@@ -2,6 +2,8 @@
 
 
 #include "ItemInstance.h"
+#include "demoBillyHill14/Items/ItemDefinition.h"
+#include "demoBillyHill14/Fragments/InventoryItemFragment.h"
 
 float UItemInstance::GetStatValue(FGameplayTag StatTag)
 {
@@ -11,4 +13,19 @@ float UItemInstance::GetStatValue(FGameplayTag StatTag)
 void UItemInstance::SetStatValue(FGameplayTag StatTag, float StatValue)
 {
 	StatsMap.Add(StatTag, StatValue);
+}
+
+void UItemInstance::Initialize(TSubclassOf<UItemDefinition> ItemDef)
+{
+	if (!ItemDef) return;
+	
+	ItemDefinition = ItemDef;
+	
+	UItemDefinition* ItemCDO = ItemDefinition.GetDefaultObject();
+	
+	for (const TObjectPtr<UInventoryItemFragment>& Fragment : ItemCDO->Fragments)
+	{
+		Fragment->OnInstanceCreated(this);
+	}
+	
 }
