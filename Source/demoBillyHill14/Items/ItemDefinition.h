@@ -16,8 +16,10 @@ enum class EItemRarity: uint8
 	Common,
 	Uncommon,
 	Rare,
-	Epic,
-	Legendary
+	Exotic,
+	Quest,
+	Pinnacle,
+	Relic
 };
 
 /**
