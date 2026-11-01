@@ -3,10 +3,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
 #include "UObject/Object.h"
 #include "ItemDefinition.generated.h"
 
-class UInventoryItemFragment; 
+class UInventoryItemFragment;
 
 UENUM(BlueprintType)
 enum class EItemRarity: uint8
@@ -15,36 +16,40 @@ enum class EItemRarity: uint8
 	Common,
 	Uncommon,
 	Rare,
-	Exotic,
-	Quest,
-	Pinnacle,
-	Relic
+	Epic,
+	Legendary
 };
 
 /**
  * 
  */
 UCLASS(Blueprintable, BlueprintType, Abstract, Const)
-class DEMOBILLYHILL14_API UItemDefinition : public UObject
+class INVENTORYSYSTEM_API UItemDefinition : public UObject
 {
 	GENERATED_BODY()
 public:
-	
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display")
-	FText ItemName; 
-	
+	FText ItemName;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display")
 	FText ItemDescription;
-	
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display")
-	TObjectPtr<UTexture2D> ItemIcon; 
+	TObjectPtr<UTexture2D> ItemIcon;
 	
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display")
 	EItemRarity Rarity = EItemRarity::None;
 	
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Instanced, Category = "FragmentsArray")
-	TArray<TObjectPtr<UInventoryItemFragment>> Fragments;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Display")
+	FGameplayTagContainer ItemType;
 	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Options")
+	bool CanBeDestroyed = true;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Instanced, Category = "Fragments Array")
+	TArray<TObjectPtr<UInventoryItemFragment>> Fragments;
+
 	UFUNCTION(BlueprintCallable, BlueprintPure, meta = (DeterminesOutputType = "FragmentClass"))
 	static const UInventoryItemFragment* FindFragmentByClass(const TSubclassOf<UItemDefinition> ItemDefinition, const TSubclassOf<UInventoryItemFragment> FragmentClass);
 };

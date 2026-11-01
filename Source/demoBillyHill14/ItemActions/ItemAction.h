@@ -6,15 +6,16 @@
 #include "UObject/Object.h"
 #include "ItemAction.generated.h"
 
+class UItemInstance;
 /**
  * 
  */
 UCLASS(Blueprintable, BlueprintType, Abstract, DefaultToInstanced, EditInlineNew)
-class DEMOBILLYHILL14_API UItemAction : public UObject
+class INVENTORYSYSTEM_API UItemAction : public UObject
 {
 	GENERATED_BODY()
 	
 public:
 	UFUNCTION(BlueprintImplementableEvent)
-	bool Execute(AActor* ItemOwner); 
+	bool Execute(AActor* ItemOwner, UItemInstance* ItemInstance);
 };

@@ -5,16 +5,16 @@
 
 #include "demoBillyHill14/ItemActions/ItemAction.h"
 
-bool UInventoryFragment_Usable::Use(AActor* ItemOwner)
+bool UInventoryFragment_Usable::Use(AActor* ItemOwner, UItemInstance* ItemInstance)
 {
-	bool bAnySucceeded = false; 
+	bool bAnySucceeded = false;
 	
 	for (const TObjectPtr<UItemAction>& Action : OnUseActions)
 	{
-		if (Action && Action->Execute(ItemOwner))
+		if (Action && Action->Execute(ItemOwner, ItemInstance))
 		{
 			bAnySucceeded = true;
 		}
 	}
-	return bAnySucceeded;	
+	return bAnySucceeded;
 }

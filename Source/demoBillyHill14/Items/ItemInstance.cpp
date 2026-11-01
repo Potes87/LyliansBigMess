@@ -7,7 +7,7 @@
 
 float UItemInstance::GetStatValue(FGameplayTag StatTag)
 {
-	return StatsMap.FindRef(StatTag); 
+	return StatsMap.FindRef(StatTag);
 }
 
 void UItemInstance::SetStatValue(FGameplayTag StatTag, float StatValue)
@@ -22,7 +22,7 @@ void UItemInstance::Initialize(TSubclassOf<UItemDefinition> ItemDef, const TMap<
 	ItemDefinition = ItemDef;
 	
 	UItemDefinition* ItemCDO = ItemDefinition.GetDefaultObject();
-	
+		
 	for (const TObjectPtr<UInventoryItemFragment>& Fragment : ItemCDO->Fragments)
 	{
 		Fragment->OnInstanceCreated(this);
@@ -32,5 +32,14 @@ void UItemInstance::Initialize(TSubclassOf<UItemDefinition> ItemDef, const TMap<
 	{
 		StatsMap = InitialStats;
 	}
+}
+
+const UInventoryItemFragment* UItemInstance::FindFragmentByClass(
+	const TSubclassOf<UInventoryItemFragment> FragmentClass)
+{
+	if (!FragmentClass) return nullptr;
 	
+	UItemDefinition* ItemCDO = ItemDefinition.GetDefaultObject();
+	
+	return ItemCDO->FindFragmentByClass(ItemDefinition, FragmentClass);
 }

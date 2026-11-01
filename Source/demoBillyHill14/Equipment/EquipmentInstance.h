@@ -27,7 +27,7 @@ public:
 	TObjectPtr<AActor> SpawnedEquipmentActor;
 	
 	UFUNCTION(BlueprintCallable)
-	void Initialize(UItemInstance* ItemInstance);
+	void Initialize(UItemInstance* ItemInstance, ACharacter* Character);
 	
 	UFUNCTION(BlueprintCallable)
 	void HandleEquipItem(ACharacter* Character);
