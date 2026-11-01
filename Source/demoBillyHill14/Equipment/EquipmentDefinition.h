@@ -11,7 +11,7 @@
  * 
  */
 UCLASS(Blueprintable, BlueprintType, Abstract, Const)
-class INVENTORYSYSTEM_API UEquipmentDefinition : public UObject
+class DEMOBILLYHILL14_API UEquipmentDefinition : public UObject
 {
 	GENERATED_BODY()
 	

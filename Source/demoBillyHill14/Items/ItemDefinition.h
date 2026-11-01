@@ -24,7 +24,7 @@ enum class EItemRarity: uint8
  * 
  */
 UCLASS(Blueprintable, BlueprintType, Abstract, Const)
-class INVENTORYSYSTEM_API UItemDefinition : public UObject
+class DEMOBILLYHILL14_API UItemDefinition : public UObject
 {
 	GENERATED_BODY()
 public:

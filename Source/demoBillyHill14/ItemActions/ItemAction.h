@@ -11,7 +11,7 @@ class UItemInstance;
  * 
  */
 UCLASS(Blueprintable, BlueprintType, Abstract, DefaultToInstanced, EditInlineNew)
-class INVENTORYSYSTEM_API UItemAction : public UObject
+class DEMOBILLYHILL14_API UItemAction : public UObject
 {
 	GENERATED_BODY()
 	
