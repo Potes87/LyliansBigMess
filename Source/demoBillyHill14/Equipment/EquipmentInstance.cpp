@@ -3,6 +3,7 @@
 
 #include "EquipmentInstance.h"
 #include "EquipmentDefinition.h"
+#include "EquipmentActorInterface.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "demoBillyHill14//Fragments/InventoryFragment_Equippable.h"
@@ -55,7 +56,13 @@ void UEquipmentInstance::HandleEquipItem(ACharacter* Character)
 		FAttachmentTransformRules::SnapToTargetIncludingScale,
 		DefinitionCDO->AttachSocketName
 	);
-	
+
+	// Hand the spawned actor the item it came from (e.g. so a gun can read its rolled stats).
+	if (SpawnedEquipmentActor->Implements<UEquipmentActorInterface>())
+	{
+		IEquipmentActorInterface::Execute_OnEquipped(SpawnedEquipmentActor, SourceItemInstance, Character);
+	}
+
 	float MovementSpeedIncrease = SourceItemInstance->GetStatValue(FGameplayTag::RequestGameplayTag(FName("Item.Stat.MovementSpeed")));
 	
 	Character->GetCharacterMovement()->MaxWalkSpeed += MovementSpeedIncrease;
