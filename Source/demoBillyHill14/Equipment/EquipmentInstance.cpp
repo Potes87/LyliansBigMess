@@ -7,6 +7,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "demoBillyHill14//Fragments/InventoryFragment_Equippable.h"
 #include "demoBillyHill14//Items/ItemInstance.h"
+#include "Components/SkeletalMeshComponent.h"
 
 void UEquipmentInstance::Initialize(UItemInstance* ItemInstance, ACharacter* Character)
 {
@@ -14,9 +15,7 @@ void UEquipmentInstance::Initialize(UItemInstance* ItemInstance, ACharacter* Cha
 	
 	SourceItemInstance = ItemInstance;
 	
-	const UInventoryFragment_Equippable* EquippableFragment = Cast<UInventoryFragment_Equippable>(
-		ItemInstance->FindFragmentByClass(UInventoryFragment_Equippable::StaticClass())
-	);
+	const UInventoryFragment_Equippable* EquippableFragment = Cast<UInventoryFragment_Equippable>(ItemInstance->FindFragmentByClass(UInventoryFragment_Equippable::StaticClass()));
 	
 	if (!EquippableFragment) return;
 	
@@ -26,16 +25,33 @@ void UEquipmentInstance::Initialize(UItemInstance* ItemInstance, ACharacter* Cha
 
 void UEquipmentInstance::HandleEquipItem(ACharacter* Character)
 {
+	if (!Character) return;
+
 	UEquipmentDefinition* DefinitionCDO = EquipmentDefinition.GetDefaultObject();
 	
 	if (!DefinitionCDO) return;
+
+	const TArray<UActorComponent*> MeshMatches = Character->GetComponentsByTag(
+		USkeletalMeshComponent::StaticClass(),
+		FName("EquipmentMesh"));
+
+	if (MeshMatches.Num() != 1)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Expected exactly one skeletal mesh component tagged 'EquipmentMesh' on %s; found %d."),
+			*GetNameSafe(Character),
+			MeshMatches.Num());
+		return;
+	}
+
+	USkeletalMeshComponent* EquipmentMesh = Cast<USkeletalMeshComponent>(MeshMatches[0]);
+	if (!EquipmentMesh) return;
 	
 	SpawnedEquipmentActor = GetWorld()->SpawnActor(DefinitionCDO->EquipmentActorClass);
 	
 	if (!SpawnedEquipmentActor) return;
 	
 	SpawnedEquipmentActor->AttachToComponent(
-		Character->GetMesh(),
+		EquipmentMesh,
 		FAttachmentTransformRules::SnapToTargetIncludingScale,
 		DefinitionCDO->AttachSocketName
 	);
