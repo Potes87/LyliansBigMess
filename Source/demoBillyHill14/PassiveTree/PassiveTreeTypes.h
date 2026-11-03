@@ -17,6 +17,24 @@ enum class EPassiveNodeType : uint8
 };
 
 /**
+ * Why allocating or refunding a node did or didn't work.
+ */
+UENUM(BlueprintType)
+enum class EPassiveNodeResult : uint8
+{
+	Success,
+	NoNodeTable,
+	NodeNotFound,
+	AlreadyAllocated,
+	NotAllocated,
+	NoPointsAvailable,
+	NotConnected,
+	CannotRefundStart,
+	WouldDisconnectTree,
+	MissingStatsComponent
+};
+
+/**
  * One node on the passive tree. The row name is the node's permanent ID, so don't rename rows once saves exist.
  */
 USTRUCT(BlueprintType)
@@ -34,7 +52,7 @@ struct DEMOBILLYHILL14_API FPassiveNodeRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Node")
 	FVector2D Position = FVector2D::ZeroVector;
 
-	// Row names of the nodes this one connects to.
+	// Row names of the nodes this one connects to. Links work in both directions, even if only one row lists them.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Node")
 	TArray<FName> LinkedNodes;
 
