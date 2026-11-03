@@ -82,6 +82,10 @@ void UPassiveNodeWidget::RefreshState(const UPassiveTreeComponent& Tree)
 	{
 		Tooltip += TEXT("\n") + DescribeModifier(Modifier);
 	}
+	if (!Row->Description.IsEmpty())
+	{
+		Tooltip += TEXT("\n") + Row->Description.ToString();
+	}
 
 	Tooltip += TEXT("\n\n");
 	if (Row->Type == EPassiveNodeType::Start)

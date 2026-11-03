@@ -4,8 +4,11 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataTable.h"
+#include "Templates/SubclassOf.h"
 #include "demoBillyHill14/Stats/StatTypes.h"
 #include "PassiveTreeTypes.generated.h"
+
+class UPassiveEffect;
 
 UENUM(BlueprintType)
 enum class EPassiveNodeType : uint8
@@ -58,4 +61,12 @@ struct DEMOBILLYHILL14_API FPassiveNodeRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Node")
 	TArray<FStatModifier> Modifiers;
+
+	// Optional behaviour that stat modifiers can't express, such as a keystone.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Node")
+	TSubclassOf<UPassiveEffect> Effect;
+
+	// Optional tooltip lines explaining the Effect, shown after the modifiers.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Node", meta = (MultiLine = true))
+	FText Description;
 };

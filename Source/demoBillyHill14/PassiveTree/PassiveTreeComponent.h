@@ -8,6 +8,7 @@
 #include "PassiveTreeComponent.generated.h"
 
 class UDataTable;
+class UPassiveEffect;
 class UPlayerStatsComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPassiveTreeChanged);
@@ -85,6 +86,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Passive Tree")
 	TArray<FName> GetLinkedNodes(FName NodeId) const;
 
+	// The gun calls this before spawning a bullet. Returns the damage the bullet should carry.
+	UFUNCTION(BlueprintCallable, Category = "Passive Tree|Events")
+	float NotifyShotFired(float Damage);
+
+	// The bullet calls this when it hits an enemy. Returns the damage to deal.
+	UFUNCTION(BlueprintCallable, Category = "Passive Tree|Events")
+	float NotifyEnemyHit(AActor* Enemy, float Damage);
+
+	// The gun calls this when a reload finishes.
+	UFUNCTION(BlueprintCallable, Category = "Passive Tree|Events")
+	void NotifyReloaded();
+
 	// Testing helper: allocates the first row the rules allow and returns its name, or None if there isn't one.
 	UFUNCTION(BlueprintCallable, Category = "Passive Tree|Debug")
 	FName DebugAllocateNextNode();
@@ -112,6 +125,10 @@ private:
 
 	UPROPERTY()
 	TArray<FName> AllocatedNodes;
+
+	// The running effect of each allocated node that has one.
+	UPROPERTY()
+	TMap<FName, TObjectPtr<UPassiveEffect>> ActiveEffects;
 
 	int32 PlayerLevel = 1;
 

@@ -3,6 +3,7 @@
 #include "PassiveTreeComponent.h"
 #include "Engine/DataTable.h"
 #include "GameFramework/Actor.h"
+#include "PassiveEffect.h"
 #include "demoBillyHill14/Stats/PlayerStatsComponent.h"
 
 UPassiveTreeComponent::UPassiveTreeComponent()
@@ -107,6 +108,32 @@ TArray<FName> UPassiveTreeComponent::GetLinkedNodes(FName NodeId) const
 {
 	const TArray<FName>* NodeLinks = Links.Find(NodeId);
 	return NodeLinks ? *NodeLinks : TArray<FName>();
+}
+
+float UPassiveTreeComponent::NotifyShotFired(float Damage)
+{
+	for (const TPair<FName, TObjectPtr<UPassiveEffect>>& ActiveEffect : ActiveEffects)
+	{
+		Damage = ActiveEffect.Value->OnShotFired(Damage);
+	}
+	return Damage;
+}
+
+float UPassiveTreeComponent::NotifyEnemyHit(AActor* Enemy, float Damage)
+{
+	for (const TPair<FName, TObjectPtr<UPassiveEffect>>& ActiveEffect : ActiveEffects)
+	{
+		Damage = ActiveEffect.Value->OnEnemyHit(Enemy, Damage);
+	}
+	return Damage;
+}
+
+void UPassiveTreeComponent::NotifyReloaded()
+{
+	for (const TPair<FName, TObjectPtr<UPassiveEffect>>& ActiveEffect : ActiveEffects)
+	{
+		ActiveEffect.Value->OnReloaded();
+	}
 }
 
 FName UPassiveTreeComponent::DebugAllocateNextNode()
@@ -237,6 +264,14 @@ EPassiveNodeResult UPassiveTreeComponent::ApplyAllocation(FName NodeId, const FP
 
 	AllocatedNodes.Add(NodeId);
 	Stats->SetModifierSource(MakeSourceId(NodeId), Node.Modifiers);
+
+	if (Node.Effect)
+	{
+		UPassiveEffect* Effect = NewObject<UPassiveEffect>(this, Node.Effect);
+		ActiveEffects.Add(NodeId, Effect);
+		Effect->OnActivated();
+	}
+
 	OnPassiveTreeChanged.Broadcast();
 	return EPassiveNodeResult::Success;
 }
@@ -248,6 +283,13 @@ EPassiveNodeResult UPassiveTreeComponent::ApplyRefund(FName NodeId)
 
 	AllocatedNodes.Remove(NodeId);
 	Stats->RemoveModifierSource(MakeSourceId(NodeId));
+
+	TObjectPtr<UPassiveEffect> Effect;
+	if (ActiveEffects.RemoveAndCopyValue(NodeId, Effect))
+	{
+		Effect->OnDeactivated();
+	}
+
 	OnPassiveTreeChanged.Broadcast();
 	return EPassiveNodeResult::Success;
 }
