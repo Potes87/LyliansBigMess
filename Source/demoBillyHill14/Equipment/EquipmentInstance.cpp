@@ -5,7 +5,6 @@
 #include "EquipmentDefinition.h"
 #include "EquipmentActorInterface.h"
 #include "GameFramework/Character.h"
-#include "GameFramework/CharacterMovementComponent.h"
 #include "demoBillyHill14//Fragments/InventoryFragment_Equippable.h"
 #include "demoBillyHill14//Items/ItemInstance.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -62,10 +61,6 @@ void UEquipmentInstance::HandleEquipItem(ACharacter* Character)
 	{
 		IEquipmentActorInterface::Execute_OnEquipped(SpawnedEquipmentActor, SourceItemInstance, Character);
 	}
-
-	float MovementSpeedIncrease = SourceItemInstance->GetStatValue(FGameplayTag::RequestGameplayTag(FName("Item.Stat.MovementSpeed")));
-	
-	Character->GetCharacterMovement()->MaxWalkSpeed += MovementSpeedIncrease;
 }
 
 void UEquipmentInstance::HandleUnequipItem(ACharacter* Character)
@@ -75,8 +70,4 @@ void UEquipmentInstance::HandleUnequipItem(ACharacter* Character)
 		SpawnedEquipmentActor->Destroy();
 		SpawnedEquipmentActor = nullptr;
 	}
-	
-	float MovementSpeedIncrease = SourceItemInstance->GetStatValue(FGameplayTag::RequestGameplayTag(FName("Item.Stat.MovementSpeed")));
-	
-	Character->GetCharacterMovement()->MaxWalkSpeed -= MovementSpeedIncrease;
 }
