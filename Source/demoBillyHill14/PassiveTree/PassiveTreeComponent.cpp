@@ -194,6 +194,46 @@ void UPassiveTreeComponent::NotifyReloaded()
 	}
 }
 
+bool UPassiveTreeComponent::CanFireShot() const
+{
+	for (const TPair<FName, TObjectPtr<UPassiveEffect>>& ActiveEffect : ActiveEffects)
+	{
+		if (!ActiveEffect.Value->CanFireShot()) return false;
+	}
+	return true;
+}
+
+int32 UPassiveTreeComponent::GetAmmoCost() const
+{
+	int32 Cost = 1;
+	for (const TPair<FName, TObjectPtr<UPassiveEffect>>& ActiveEffect : ActiveEffects)
+	{
+		Cost = ActiveEffect.Value->GetAmmoCost(Cost);
+	}
+	return FMath::Max(0, Cost);
+}
+
+bool UPassiveTreeComponent::CanReload() const
+{
+	for (const TPair<FName, TObjectPtr<UPassiveEffect>>& ActiveEffect : ActiveEffects)
+	{
+		if (!ActiveEffect.Value->CanReload()) return false;
+	}
+	return true;
+}
+
+int32 UPassiveTreeComponent::TakeRegeneratedAmmo(float DeltaSeconds, int32 MagazineSize)
+{
+	for (const TPair<FName, TObjectPtr<UPassiveEffect>>& ActiveEffect : ActiveEffects)
+	{
+		PendingAmmo += ActiveEffect.Value->GetAmmoRegen(DeltaSeconds, MagazineSize);
+	}
+
+	const int32 WholeRounds = FMath::FloorToInt(PendingAmmo);
+	PendingAmmo -= WholeRounds;
+	return WholeRounds;
+}
+
 FName UPassiveTreeComponent::DebugAllocateNextNode()
 {
 	if (!NodeTable) return NAME_None;

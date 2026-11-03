@@ -39,6 +39,22 @@ public:
 	UFUNCTION(BlueprintNativeEvent, Category = "Passive Effect")
 	void OnReloaded();
 
+	// Return false to stop the gun firing right now.
+	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "Passive Effect")
+	bool CanFireShot() const;
+
+	// Takes the ammo a shot would cost, and returns what it should cost instead.
+	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "Passive Effect")
+	int32 GetAmmoCost(int32 Cost) const;
+
+	// Return false to stop the gun reloading.
+	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "Passive Effect")
+	bool CanReload() const;
+
+	// Returns how much ammo to add this frame. Fractions build up until they make a whole round.
+	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "Passive Effect")
+	float GetAmmoRegen(float DeltaSeconds, int32 MagazineSize) const;
+
 	// The actor that owns the passive tree, which is the player's character.
 	UFUNCTION(BlueprintPure, Category = "Passive Effect")
 	AActor* GetOwningActor() const;
@@ -88,4 +104,63 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Point Blank", meta = (ClampMin = "0"))
 	float FarMultiplier = 0.5f;
+};
+
+/**
+ * Keystone: shots cost health instead of ammo, and hits give some back. A shot that would kill you won't fire.
+ *
+ * The player's health lives in a Blueprint component, so make a Blueprint child of this class and implement the
+ * three health events. The node's Effect field names that child.
+ */
+UCLASS(Abstract)
+class DEMOBILLYHILL14_API UPassiveEffect_BloodRounds : public UPassiveEffect
+{
+	GENERATED_BODY()
+
+public:
+	virtual float OnShotFired_Implementation(float Damage) override;
+	virtual float OnEnemyHit_Implementation(AActor* Enemy, float Damage) override;
+	virtual bool CanFireShot_Implementation() const override;
+	virtual int32 GetAmmoCost_Implementation(int32 Cost) const override;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blood Rounds", meta = (ClampMin = "0"))
+	float HealthPerShot = 2.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blood Rounds", meta = (ClampMin = "0"))
+	float HealthPerHit = 3.f;
+
+protected:
+	UFUNCTION(BlueprintImplementableEvent, BlueprintPure, Category = "Blood Rounds")
+	float GetCurrentHealth() const;
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Blood Rounds")
+	void SpendHealth(float Amount);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Blood Rounds")
+	void RestoreHealth(float Amount);
+};
+
+/**
+ * Keystone: the gun can't reload, and refills on its own once you stop firing.
+ */
+UCLASS()
+class DEMOBILLYHILL14_API UPassiveEffect_BottomlessMag : public UPassiveEffect
+{
+	GENERATED_BODY()
+
+public:
+	virtual float OnShotFired_Implementation(float Damage) override;
+	virtual bool CanReload_Implementation() const override;
+	virtual float GetAmmoRegen_Implementation(float DeltaSeconds, int32 MagazineSize) const override;
+
+	// How much of the magazine comes back each second: 0.2 refills an empty magazine in 5 seconds.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Bottomless Mag", meta = (ClampMin = "0"))
+	float RegenPerSecond = 0.2f;
+
+	// How long after a shot the refill starts, in seconds.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Bottomless Mag", meta = (ClampMin = "0"))
+	float RegenDelay = 0.5f;
+
+private:
+	double LastShotTime = -1000.0;
 };

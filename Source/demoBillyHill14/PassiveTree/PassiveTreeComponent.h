@@ -119,6 +119,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Passive Tree|Events")
 	void NotifyReloaded();
 
+	// Whether the gun may fire right now, as far as the allocated nodes are concerned.
+	UFUNCTION(BlueprintPure, Category = "Passive Tree|Events")
+	bool CanFireShot() const;
+
+	// How many rounds one shot takes from the magazine.
+	UFUNCTION(BlueprintPure, Category = "Passive Tree|Events")
+	int32 GetAmmoCost() const;
+
+	// Whether the gun may reload, as far as the allocated nodes are concerned.
+	UFUNCTION(BlueprintPure, Category = "Passive Tree|Events")
+	bool CanReload() const;
+
+	// The gun calls this every frame. Returns the whole rounds to add to the magazine, usually 0.
+	UFUNCTION(BlueprintCallable, Category = "Passive Tree|Events")
+	int32 TakeRegeneratedAmmo(float DeltaSeconds, int32 MagazineSize);
+
 	// Testing helper: allocates the first row the rules allow and returns its name, or None if there isn't one.
 	UFUNCTION(BlueprintCallable, Category = "Passive Tree|Debug")
 	FName DebugAllocateNextNode();
@@ -154,6 +170,9 @@ private:
 	TMap<FName, TObjectPtr<UPassiveEffect>> ActiveEffects;
 
 	int32 PlayerLevel = 1;
+
+	// Regenerated ammo that hasn't added up to a whole round yet.
+	float PendingAmmo = 0.f;
 
 	// Links in both directions, built from the table at BeginPlay.
 	TMap<FName, TArray<FName>> Links;

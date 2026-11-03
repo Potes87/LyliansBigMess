@@ -2,6 +2,7 @@
 
 #include "PassiveEffect.h"
 #include "Components/ActorComponent.h"
+#include "Engine/World.h"
 #include "GameFramework/Actor.h"
 
 UWorld* UPassiveEffect::GetWorld() const
@@ -41,6 +42,26 @@ void UPassiveEffect::OnReloaded_Implementation()
 {
 }
 
+bool UPassiveEffect::CanFireShot_Implementation() const
+{
+	return true;
+}
+
+int32 UPassiveEffect::GetAmmoCost_Implementation(int32 Cost) const
+{
+	return Cost;
+}
+
+bool UPassiveEffect::CanReload_Implementation() const
+{
+	return true;
+}
+
+float UPassiveEffect::GetAmmoRegen_Implementation(float DeltaSeconds, int32 MagazineSize) const
+{
+	return 0.f;
+}
+
 float UPassiveEffect_OneCleanShot::OnShotFired_Implementation(float Damage)
 {
 	if (!bIsShotReady) return Damage;
@@ -63,4 +84,48 @@ float UPassiveEffect_PointBlank::OnEnemyHit_Implementation(AActor* Enemy, float 
 	if (Distance <= CloseRange) return Damage * CloseMultiplier;
 	if (Distance >= FarRange) return Damage * FarMultiplier;
 	return Damage;
+}
+
+float UPassiveEffect_BloodRounds::OnShotFired_Implementation(float Damage)
+{
+	SpendHealth(HealthPerShot);
+	return Damage;
+}
+
+float UPassiveEffect_BloodRounds::OnEnemyHit_Implementation(AActor* Enemy, float Damage)
+{
+	RestoreHealth(HealthPerHit);
+	return Damage;
+}
+
+bool UPassiveEffect_BloodRounds::CanFireShot_Implementation() const
+{
+	return GetCurrentHealth() > HealthPerShot;
+}
+
+int32 UPassiveEffect_BloodRounds::GetAmmoCost_Implementation(int32 Cost) const
+{
+	return 0;
+}
+
+float UPassiveEffect_BottomlessMag::OnShotFired_Implementation(float Damage)
+{
+	if (const UWorld* World = GetWorld())
+	{
+		LastShotTime = World->GetTimeSeconds();
+	}
+	return Damage;
+}
+
+bool UPassiveEffect_BottomlessMag::CanReload_Implementation() const
+{
+	return false;
+}
+
+float UPassiveEffect_BottomlessMag::GetAmmoRegen_Implementation(float DeltaSeconds, int32 MagazineSize) const
+{
+	const UWorld* World = GetWorld();
+	if (!World || World->GetTimeSeconds() - LastShotTime < RegenDelay) return 0.f;
+
+	return MagazineSize * RegenPerSecond * DeltaSeconds;
 }
