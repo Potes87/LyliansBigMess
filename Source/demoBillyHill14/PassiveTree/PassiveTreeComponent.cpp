@@ -98,6 +98,11 @@ bool UPassiveTreeComponent::IsNodeAllocated(FName NodeId) const
 	return AllocatedNodes.Contains(NodeId);
 }
 
+TArray<FName> UPassiveTreeComponent::GetNodeIds() const
+{
+	return NodeTable ? NodeTable->GetRowNames() : TArray<FName>();
+}
+
 TArray<FName> UPassiveTreeComponent::GetLinkedNodes(FName NodeId) const
 {
 	const TArray<FName>* NodeLinks = Links.Find(NodeId);

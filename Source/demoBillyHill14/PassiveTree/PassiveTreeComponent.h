@@ -75,6 +75,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Passive Tree")
 	const TArray<FName>& GetAllocatedNodes() const { return AllocatedNodes; }
 
+	// The row name of every node in the table.
+	UFUNCTION(BlueprintPure, Category = "Passive Tree")
+	TArray<FName> GetNodeIds() const;
+
+	const FPassiveNodeRow* FindNode(FName NodeId) const;
+
 	// Every node linked to this one, in either direction.
 	UFUNCTION(BlueprintPure, Category = "Passive Tree")
 	TArray<FName> GetLinkedNodes(FName NodeId) const;
@@ -91,7 +97,6 @@ protected:
 	virtual void BeginPlay() override;
 
 private:
-	const FPassiveNodeRow* FindNode(FName NodeId) const;
 	bool IsStartNode(FName NodeId) const;
 	bool IsLinkedToAllocatedNode(FName NodeId) const;
 	bool WouldStayConnectedWithout(FName NodeId) const;
