@@ -3,7 +3,9 @@
 #include "PassiveTreeComponent.h"
 #include "Engine/DataTable.h"
 #include "GameFramework/Actor.h"
+#include "Kismet/GameplayStatics.h"
 #include "PassiveEffect.h"
+#include "PlayerProgressSaveGame.h"
 #include "demoBillyHill14/Stats/PlayerStatsComponent.h"
 
 UPassiveTreeComponent::UPassiveTreeComponent()
@@ -83,7 +85,12 @@ EPassiveNodeResult UPassiveTreeComponent::AllocateNode(FName NodeId)
 	const EPassiveNodeResult Result = CanAllocateNode(NodeId);
 	if (Result != EPassiveNodeResult::Success) return Result;
 
-	return ApplyAllocation(NodeId, *FindNode(NodeId));
+	const EPassiveNodeResult AppliedResult = ApplyAllocation(NodeId, *FindNode(NodeId));
+	if (AppliedResult == EPassiveNodeResult::Success)
+	{
+		OnPassiveTreeChanged.Broadcast();
+	}
+	return AppliedResult;
 }
 
 EPassiveNodeResult UPassiveTreeComponent::RefundNode(FName NodeId)
@@ -91,7 +98,58 @@ EPassiveNodeResult UPassiveTreeComponent::RefundNode(FName NodeId)
 	const EPassiveNodeResult Result = CanRefundNode(NodeId);
 	if (Result != EPassiveNodeResult::Success) return Result;
 
-	return ApplyRefund(NodeId);
+	const EPassiveNodeResult AppliedResult = ApplyRefund(NodeId);
+	if (AppliedResult == EPassiveNodeResult::Success)
+	{
+		OnPassiveTreeChanged.Broadcast();
+	}
+	return AppliedResult;
+}
+
+void UPassiveTreeComponent::RefundAllNodes()
+{
+	RefundAllWithoutBroadcast();
+	OnPassiveTreeChanged.Broadcast();
+}
+
+bool UPassiveTreeComponent::SaveProgress(float CurrentXP)
+{
+	UPlayerProgressSaveGame* SaveGame = Cast<UPlayerProgressSaveGame>(UGameplayStatics::CreateSaveGameObject(UPlayerProgressSaveGame::StaticClass()));
+	if (!SaveGame) return false;
+
+	SaveGame->PlayerLevel = PlayerLevel;
+	SaveGame->CurrentXP = CurrentXP;
+	SaveGame->AllocatedNodes = AllocatedNodes;
+
+	const bool bSaved = UGameplayStatics::SaveGameToSlot(SaveGame, SaveSlotName, 0);
+	if (!bSaved)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("PassiveTreeComponent couldn't write save slot %s."), *SaveSlotName);
+	}
+	return bSaved;
+}
+
+bool UPassiveTreeComponent::LoadProgress(int32& Level, float& CurrentXP)
+{
+	Level = PlayerLevel;
+	CurrentXP = 0.f;
+
+	const UPlayerProgressSaveGame* SaveGame = Cast<UPlayerProgressSaveGame>(UGameplayStatics::LoadGameFromSlot(SaveSlotName, 0));
+	if (!SaveGame) return false;
+
+	Level = FMath::Max(1, SaveGame->PlayerLevel);
+	CurrentXP = SaveGame->CurrentXP;
+	PlayerLevel = Level;
+
+	RefundAllWithoutBroadcast();
+	RestoreNodes(SaveGame->AllocatedNodes);
+	OnPassiveTreeChanged.Broadcast();
+	return true;
+}
+
+void UPassiveTreeComponent::DebugDeleteSave()
+{
+	UGameplayStatics::DeleteGameInSlot(SaveSlotName, 0);
 }
 
 bool UPassiveTreeComponent::IsNodeAllocated(FName NodeId) const
@@ -152,12 +210,44 @@ FName UPassiveTreeComponent::DebugAllocateNextNode()
 
 void UPassiveTreeComponent::DebugRefundAllNodes()
 {
+	RefundAllNodes();
+}
+
+void UPassiveTreeComponent::RefundAllWithoutBroadcast()
+{
 	const TArray<FName> NodesToCheck = AllocatedNodes;
 	for (const FName& NodeId : NodesToCheck)
 	{
 		if (!IsStartNode(NodeId))
 		{
 			ApplyRefund(NodeId);
+		}
+	}
+}
+
+void UPassiveTreeComponent::RestoreNodes(const TArray<FName>& SavedNodes)
+{
+	// A refund through a loop can save a node before the one connecting it, so keep passing over the list until
+	// nothing more can be allocated. The normal rules apply, so an edited table can't produce an invalid tree.
+	TArray<FName> PendingNodes = SavedNodes;
+	int32 NumRemoved;
+	do
+	{
+		NumRemoved = PendingNodes.RemoveAll([this](const FName& NodeId)
+		{
+			if (CanAllocateNode(NodeId) != EPassiveNodeResult::Success) return false;
+
+			ApplyAllocation(NodeId, *FindNode(NodeId));
+			return true;
+		});
+	}
+	while (NumRemoved > 0);
+
+	for (const FName& NodeId : PendingNodes)
+	{
+		if (!IsNodeAllocated(NodeId))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Saved passive node %s couldn't be restored."), *NodeId.ToString());
 		}
 	}
 }
@@ -255,6 +345,7 @@ void UPassiveTreeComponent::AllocateStartNodes()
 			ApplyAllocation(RowName, *Node);
 		}
 	}
+	OnPassiveTreeChanged.Broadcast();
 }
 
 EPassiveNodeResult UPassiveTreeComponent::ApplyAllocation(FName NodeId, const FPassiveNodeRow& Node)
@@ -271,8 +362,6 @@ EPassiveNodeResult UPassiveTreeComponent::ApplyAllocation(FName NodeId, const FP
 		ActiveEffects.Add(NodeId, Effect);
 		Effect->OnActivated();
 	}
-
-	OnPassiveTreeChanged.Broadcast();
 	return EPassiveNodeResult::Success;
 }
 
@@ -289,8 +378,6 @@ EPassiveNodeResult UPassiveTreeComponent::ApplyRefund(FName NodeId)
 	{
 		Effect->OnDeactivated();
 	}
-
-	OnPassiveTreeChanged.Broadcast();
 	return EPassiveNodeResult::Success;
 }
 

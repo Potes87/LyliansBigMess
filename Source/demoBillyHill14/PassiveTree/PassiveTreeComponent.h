@@ -36,6 +36,9 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Passive Tree", meta = (ClampMin = "0"))
 	int32 PointsPerLevel = 1;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Passive Tree|Saving")
+	FString SaveSlotName = TEXT("PlayerProgress");
+
 	// Fires when nodes are allocated or refunded, and when the player's level changes the available points.
 	UPROPERTY(BlueprintAssignable, Category = "Passive Tree")
 	FOnPassiveTreeChanged OnPassiveTreeChanged;
@@ -70,6 +73,24 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Passive Tree")
 	EPassiveNodeResult RefundNode(FName NodeId);
 
+	// Refunds everything except Start nodes.
+	UFUNCTION(BlueprintCallable, Category = "Passive Tree")
+	void RefundAllNodes();
+
+	// Writes the level, the XP passed in and the allocated nodes to the save slot. Returns false if that failed.
+	UFUNCTION(BlueprintCallable, Category = "Passive Tree|Saving")
+	bool SaveProgress(float CurrentXP);
+
+	// Restores the level and allocated nodes from the save slot, and outputs the saved level and XP for the
+	// leveling component. Saved nodes that no longer exist, connect or fit the available points are dropped.
+	// Returns false if there's no save, leaving the tree unchanged.
+	UFUNCTION(BlueprintCallable, Category = "Passive Tree|Saving")
+	bool LoadProgress(int32& Level, float& CurrentXP);
+
+	// Testing helper: deletes the save so the next Play starts fresh.
+	UFUNCTION(BlueprintCallable, Category = "Passive Tree|Debug")
+	void DebugDeleteSave();
+
 	UFUNCTION(BlueprintPure, Category = "Passive Tree")
 	bool IsNodeAllocated(FName NodeId) const;
 
@@ -102,7 +123,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Passive Tree|Debug")
 	FName DebugAllocateNextNode();
 
-	// Testing helper: refunds everything except Start nodes, ignoring the connection rule.
+	// Testing helper: the same as RefundAllNodes.
 	UFUNCTION(BlueprintCallable, Category = "Passive Tree|Debug")
 	void DebugRefundAllNodes();
 
@@ -118,6 +139,8 @@ private:
 	void AllocateStartNodes();
 	EPassiveNodeResult ApplyAllocation(FName NodeId, const FPassiveNodeRow& Node);
 	EPassiveNodeResult ApplyRefund(FName NodeId);
+	void RefundAllWithoutBroadcast();
+	void RestoreNodes(const TArray<FName>& SavedNodes);
 
 	UPlayerStatsComponent* FindStatsComponent() const;
 

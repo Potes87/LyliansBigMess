@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "PassiveTreeWidget.h"
+#include "Components/Button.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/TextBlock.h"
@@ -19,6 +20,23 @@ void UPassiveTreeWidget::NativeOnInitialized()
 	// User Widgets ignore the mouse and keyboard by default, and this one needs both.
 	SetVisibility(ESlateVisibility::Visible);
 	SetIsFocusable(true);
+
+	if (RefundAllButton)
+	{
+		RefundAllButton->OnClicked.AddDynamic(this, &UPassiveTreeWidget::HandleRefundAllClicked);
+	}
+}
+
+void UPassiveTreeWidget::HandleRefundAllClicked()
+{
+	if (Tree)
+	{
+		Tree->RefundAllNodes();
+		ShowResult(EPassiveNodeResult::Success);
+	}
+
+	// Clicking gives the button focus, and CloseKey needs it back here.
+	SetKeyboardFocus();
 }
 
 void UPassiveTreeWidget::NativeConstruct()

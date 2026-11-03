@@ -8,6 +8,7 @@
 #include "PassiveTreeTypes.h"
 #include "PassiveTreeWidget.generated.h"
 
+class UButton;
 class UCanvasPanel;
 class UPassiveNodeWidget;
 class UPassiveTreeComponent;
@@ -60,6 +61,10 @@ protected:
 	// Optional: shows why a click was refused.
 	UPROPERTY(BlueprintReadOnly, Category = "Passive Tree", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> StatusText;
+
+	// Optional: refunds every node when clicked.
+	UPROPERTY(BlueprintReadOnly, Category = "Passive Tree", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> RefundAllButton;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Passive Tree")
 	TSubclassOf<UPassiveNodeWidget> NodeWidgetClass;
@@ -124,6 +129,9 @@ private:
 
 	UFUNCTION()
 	void RefreshTree();
+
+	UFUNCTION()
+	void HandleRefundAllClicked();
 
 	void BuildTree();
 	void ApplyLayout();
