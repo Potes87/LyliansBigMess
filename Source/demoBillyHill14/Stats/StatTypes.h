@@ -23,7 +23,7 @@ struct DEMOBILLYHILL14_API FStatModifier
 {
 	GENERATED_BODY()
 
-	// The stat this changes, e.g. Item.Stat.Damage.
+	// The stat this changes, e.g. Item.Stat.Damage. For Item.Stat.FireRate and Item.Stat.ReloadSpeed, use Increased or More.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Modifier")
 	FGameplayTag Stat;
 
