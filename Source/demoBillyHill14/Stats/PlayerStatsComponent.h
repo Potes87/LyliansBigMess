@@ -59,6 +59,30 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Stats|Weapon")
 	float GetReloadPlayRate(UItemInstance* Item) const;
 
+	// The percent chance for this gun's shots to crit, from 0 to 100.
+	UFUNCTION(BlueprintPure, Category = "Stats|Crit")
+	float GetCritChance(UItemInstance* Item) const;
+
+	// What a crit multiplies damage by: 1.5 means 50% extra damage.
+	UFUNCTION(BlueprintPure, Category = "Stats|Crit")
+	float GetCritMultiplier(UItemInstance* Item) const;
+
+	// Rolls for a crit and returns the damage to use. Call it once per shot: each call is a new roll.
+	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "Stats|Crit")
+	float RollCrit(UItemInstance* Item, float Damage, bool& bIsCrit) const;
+
+	// Applies Player.Stat.MoveSpeed modifiers to a base speed, such as the character's walk speed.
+	UFUNCTION(BlueprintPure, Category = "Stats|Movement")
+	float GetMoveSpeed(float BaseSpeed) const;
+
+	// The percent crit chance every gun starts with, before its own stat and any modifiers.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats|Crit", meta = (ClampMin = "0", ClampMax = "100"))
+	float BaseCritChance = 5.f;
+
+	// The percent extra damage every crit starts with, before the gun's own stat and any modifiers.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats|Crit", meta = (ClampMin = "0"))
+	float BaseCritDamage = 50.f;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats|Weapon", meta = (ClampMin = "0.01"))
 	float MinFireDelay = 0.03f;
 

@@ -11,6 +11,9 @@ namespace
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Stat_FireDelay, "Item.Stat.FireDelay");
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Stat_FireRate, "Item.Stat.FireRate");
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Stat_ReloadSpeed, "Item.Stat.ReloadSpeed");
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Stat_CritChance, "Item.Stat.CritChance");
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Stat_CritDamage, "Item.Stat.CritDamage");
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Stat_MoveSpeed, "Player.Stat.MoveSpeed");
 
 	// Stops a large penalty from making a shot or reload take forever.
 	constexpr float MinSpeedMultiplier = 0.1f;
@@ -66,6 +69,30 @@ float UPlayerStatsComponent::GetReloadTime(UItemInstance* Item) const
 float UPlayerStatsComponent::GetReloadPlayRate(UItemInstance* Item) const
 {
 	return BaseReloadTime / GetReloadTime(Item);
+}
+
+float UPlayerStatsComponent::GetCritChance(UItemInstance* Item) const
+{
+	const float ItemChance = Item ? Item->GetStatValue(TAG_Stat_CritChance) : 0.f;
+	return FMath::Clamp(GetModifiedValue(BaseCritChance + ItemChance, TAG_Stat_CritChance, GetItemTags(Item)), 0.f, 100.f);
+}
+
+float UPlayerStatsComponent::GetCritMultiplier(UItemInstance* Item) const
+{
+	const float ItemDamage = Item ? Item->GetStatValue(TAG_Stat_CritDamage) : 0.f;
+	const float ExtraPercent = GetModifiedValue(BaseCritDamage + ItemDamage, TAG_Stat_CritDamage, GetItemTags(Item));
+	return 1.f + FMath::Max(0.f, ExtraPercent) / 100.f;
+}
+
+float UPlayerStatsComponent::RollCrit(UItemInstance* Item, float Damage, bool& bIsCrit) const
+{
+	bIsCrit = FMath::FRand() * 100.f < GetCritChance(Item);
+	return bIsCrit ? Damage * GetCritMultiplier(Item) : Damage;
+}
+
+float UPlayerStatsComponent::GetMoveSpeed(float BaseSpeed) const
+{
+	return GetModifiedValue(BaseSpeed, TAG_Stat_MoveSpeed, FGameplayTagContainer());
 }
 
 FGameplayTagContainer UPlayerStatsComponent::GetItemTags(const UItemInstance* Item)
