@@ -62,6 +62,32 @@ void UPassiveNodeWidget::InitNode(UPassiveTreeWidget* InOwnerTree, FName InNodeI
 	OwnerTree = InOwnerTree;
 	NodeId = InNodeId;
 	Row = &InRow;
+	NodeColor = FindNodeColor();
+}
+
+FLinearColor UPassiveNodeWidget::FindNodeColor() const
+{
+	if (Row->Type == EPassiveNodeType::Start) return StartColor;
+	if (Row->Type == EPassiveNodeType::Keystone) return KeystoneColor;
+
+	TArray<FGameplayTag> BoostedStats;
+	for (const FStatModifier& Modifier : Row->Modifiers)
+	{
+		if (Modifier.Value <= 0.f) continue;
+
+		for (const FGameplayTag& RequiredTag : Modifier.RequiredWeaponTags)
+		{
+			if (const FLinearColor* GunColor = TagColors.Find(RequiredTag)) return *GunColor;
+		}
+		BoostedStats.AddUnique(Modifier.Stat);
+	}
+
+	if (BoostedStats.Num() > 1) return MixedColor;
+	if (BoostedStats.Num() == 1)
+	{
+		if (const FLinearColor* StatColor = TagColors.Find(BoostedStats[0])) return *StatColor;
+	}
+	return FallbackColor;
 }
 
 void UPassiveNodeWidget::RefreshState(const UPassiveTreeComponent& Tree)
@@ -71,7 +97,13 @@ void UPassiveNodeWidget::RefreshState(const UPassiveTreeComponent& Tree)
 	const bool bIsAllocated = Tree.IsNodeAllocated(NodeId);
 	const EPassiveNodeResult AllocateResult = Tree.CanAllocateNode(NodeId);
 
-	NodeImage->SetColorAndOpacity(bIsAllocated ? AllocatedColor : AllocateResult == EPassiveNodeResult::Success ? AvailableColor : LockedColor);
+	const float Brightness = bIsAllocated ? 1.f : AllocateResult == EPassiveNodeResult::Success ? AvailableBrightness : LockedBrightness;
+	NodeImage->SetColorAndOpacity(FLinearColor(NodeColor.R * Brightness, NodeColor.G * Brightness, NodeColor.B * Brightness, NodeColor.A));
+
+	if (StateRing)
+	{
+		StateRing->SetVisibility(bIsAllocated ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
 
 	FString Tooltip = Row->DisplayName.ToString();
 	if (Row->Type == EPassiveNodeType::Notable || Row->Type == EPassiveNodeType::Keystone)
