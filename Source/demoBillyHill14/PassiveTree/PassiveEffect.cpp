@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "PassiveEffect.h"
+#include "BurnComponent.h"
 #include "Components/ActorComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
@@ -84,6 +85,15 @@ float UPassiveEffect_PointBlank::OnEnemyHit_Implementation(AActor* Enemy, float 
 	if (Distance <= CloseRange) return Damage * CloseMultiplier;
 	if (Distance >= FarRange) return Damage * FarMultiplier;
 	return Damage;
+}
+
+float UPassiveEffect_IncendiaryRounds::OnEnemyHit_Implementation(AActor* Enemy, float Damage)
+{
+	if (!Enemy) return Damage;
+
+	const float BurnDamage = Damage * BurnFraction;
+	UBurnComponent::ApplyBurn(Enemy, BurnDamage, BurnDuration);
+	return Damage - BurnDamage;
 }
 
 float UPassiveEffect_BloodRounds::OnShotFired_Implementation(float Damage)

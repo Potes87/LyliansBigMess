@@ -187,3 +187,23 @@ public:
 private:
 	double LastShotTime = -1000.0;
 };
+
+/**
+ * Keystone: part of each hit's damage lands straight away, and the rest burns the enemy over time.
+ */
+UCLASS()
+class DEMOBILLYHILL14_API UPassiveEffect_IncendiaryRounds : public UPassiveEffect
+{
+	GENERATED_BODY()
+
+public:
+	virtual float OnEnemyHit_Implementation(AActor* Enemy, float Damage) override;
+
+	// How much of each hit becomes a burn: 0.5 means half.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Incendiary Rounds", meta = (ClampMin = "0", ClampMax = "1"))
+	float BurnFraction = 0.5f;
+
+	// How long the burn lasts after the latest hit, in seconds.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Incendiary Rounds", meta = (ClampMin = "0.01"))
+	float BurnDuration = 4.f;
+};
