@@ -129,3 +129,15 @@ float UPassiveEffect_BottomlessMag::GetAmmoRegen_Implementation(float DeltaSecon
 
 	return MagazineSize * RegenPerSecond * DeltaSeconds;
 }
+
+float UPassiveEffect_SteadyBreath::OnShotFired_Implementation(float Damage)
+{
+	const UWorld* World = GetWorld();
+	if (!World) return Damage;
+
+	const double CurrentTime = World->GetTimeSeconds();
+	const float Charge = FMath::Clamp(static_cast<float>((CurrentTime - LastShotTime) / ChargeTime), 0.f, 1.f);
+	LastShotTime = CurrentTime;
+
+	return Damage * (1.f + MaxDamageBonus * Charge);
+}

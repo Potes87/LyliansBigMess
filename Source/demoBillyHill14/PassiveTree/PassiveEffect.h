@@ -164,3 +164,26 @@ public:
 private:
 	double LastShotTime = -1000.0;
 };
+
+/**
+ * Keystone: damage builds up for as long as you hold your fire, and the next shot spends it.
+ */
+UCLASS()
+class DEMOBILLYHILL14_API UPassiveEffect_SteadyBreath : public UPassiveEffect
+{
+	GENERATED_BODY()
+
+public:
+	virtual float OnShotFired_Implementation(float Damage) override;
+
+	// How long without firing it takes to reach the full bonus, in seconds.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Steady Breath", meta = (ClampMin = "0.01"))
+	float ChargeTime = 3.f;
+
+	// The bonus at full charge: 1 means 100% more damage.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Steady Breath", meta = (ClampMin = "0"))
+	float MaxDamageBonus = 1.f;
+
+private:
+	double LastShotTime = -1000.0;
+};
