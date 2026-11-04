@@ -26,6 +26,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dash")
 	int32 GetChargesLeft() const { return ChargesLeft; }
 
+	// How far the current charge is through its cooldown, from 0 to 1. Returns 1 when no charge is recovering.
+	UFUNCTION(BlueprintPure, Category = "Dash")
+	float GetCooldownProgress() const;
+
 	// How far a dash travels, in Unreal units. 100 units is 1 metre.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Dash", meta = (ClampMin = "0"))
 	float DashDistance = 650.f;

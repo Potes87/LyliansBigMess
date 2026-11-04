@@ -53,6 +53,18 @@ bool UDashComponent::TryDash()
 	return true;
 }
 
+float UDashComponent::GetCooldownProgress() const
+{
+	const UWorld* World = GetWorld();
+	if (!World || ChargesLeft >= MaxCharges) return 1.f;
+
+	const FTimerManager& TimerManager = World->GetTimerManager();
+	const float Rate = TimerManager.GetTimerRate(CooldownTimer);
+	if (Rate <= 0.f) return 1.f;
+
+	return FMath::Clamp(TimerManager.GetTimerElapsed(CooldownTimer) / Rate, 0.f, 1.f);
+}
+
 void UDashComponent::RestoreCharge()
 {
 	++ChargesLeft;
