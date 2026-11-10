@@ -9,7 +9,7 @@
 #include "PassiveNodeWidget.generated.h"
 
 class UImage;
-class UPassiveTreeComponent;
+class USkillTreeComponent;
 class UPassiveTreeWidget;
 
 /**
@@ -29,7 +29,7 @@ public:
 	void InitNode(UPassiveTreeWidget* InOwnerTree, FName InNodeId, const FPassiveNodeRow& InRow);
 
 	// Updates the colour and tooltip to match the tree's current state.
-	void RefreshState(const UPassiveTreeComponent& Tree);
+	void RefreshState(const USkillTreeComponent& Tree);
 
 protected:
 	virtual void NativeOnInitialized() override;

@@ -2,7 +2,7 @@
 
 #include "PassiveNodeWidget.h"
 #include "Components/Image.h"
-#include "PassiveTreeComponent.h"
+#include "SkillTreeComponent.h"
 #include "PassiveTreeWidget.h"
 
 #define LOCTEXT_NAMESPACE "PassiveTree"
@@ -90,7 +90,7 @@ FLinearColor UPassiveNodeWidget::FindNodeColor() const
 	return FallbackColor;
 }
 
-void UPassiveNodeWidget::RefreshState(const UPassiveTreeComponent& Tree)
+void UPassiveNodeWidget::RefreshState(const USkillTreeComponent& Tree)
 {
 	if (!Row) return;
 
@@ -124,9 +124,13 @@ void UPassiveNodeWidget::RefreshState(const UPassiveTreeComponent& Tree)
 	{
 		Tooltip += LOCTEXT("StartHint", "Your starting point").ToString();
 	}
+	else if (Row->bSealed)
+	{
+		Tooltip += UPassiveTreeWidget::GetResultText(EPassiveNodeResult::Sealed).ToString();
+	}
 	else if (bIsAllocated)
 	{
-		Tooltip += LOCTEXT("RefundHint", "Right-click to refund").ToString();
+		Tooltip += Tree.AllowsRefunds() ? LOCTEXT("RefundHint", "Right-click to refund").ToString() : LOCTEXT("BoundHint", "Bound").ToString();
 	}
 	else if (AllocateResult == EPassiveNodeResult::Success)
 	{

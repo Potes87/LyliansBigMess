@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "GameplayTagContainer.h"
 #include "InputCoreTypes.h"
 #include "PassiveTreeTypes.h"
 #include "PassiveTreeWidget.generated.h"
@@ -11,12 +12,15 @@
 class UButton;
 class UCanvasPanel;
 class UPassiveNodeWidget;
-class UPassiveTreeComponent;
+class USkillTreeComponent;
 class UTextBlock;
 
 /**
  * The full-screen passive tree. Builds a node for every row in the player's tree, places it using the
  * row's Position, and draws the links between nodes. Drag the background to pan, and scroll to zoom.
+ *
+ * TreeClass picks which tree it shows: the passive tree by default, or URuneTreeComponent for the rune tree.
+ * On the rune tree, the optional RuneText, BuyPointButton and BuyPointText show runes and buy points.
  *
  * Make a Widget Blueprint from this class with a Canvas Panel named TreeCanvas as its root.
  * Create it, add it to the viewport and switch to UI input to open it. It closes itself with CloseKey.
@@ -27,6 +31,8 @@ class DEMOBILLYHILL14_API UPassiveTreeWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
+	UPassiveTreeWidget(const FObjectInitializer& ObjectInitializer);
+
 	UFUNCTION(BlueprintCallable, Category = "Passive Tree")
 	void CloseTree();
 
@@ -62,9 +68,45 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Passive Tree", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> StatusText;
 
-	// Optional: refunds every node when clicked.
+	// Optional: refunds every node when clicked. Hidden on trees that don't allow refunds.
 	UPROPERTY(BlueprintReadOnly, Category = "Passive Tree", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> RefundAllButton;
+
+	// Optional, rune tree only: how many Runes of Seeking the player has.
+	UPROPERTY(BlueprintReadOnly, Category = "Passive Tree|Rune Tree", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> RuneText;
+
+	// Optional, rune tree only: buys a point. Disabled when the player can't afford it.
+	UPROPERTY(BlueprintReadOnly, Category = "Passive Tree|Rune Tree", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> BuyPointButton;
+
+	// Optional, rune tree only: the buy button's label, showing the next cost.
+	UPROPERTY(BlueprintReadOnly, Category = "Passive Tree|Rune Tree", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> BuyPointText;
+
+	// Which tree component on the player's pawn this screen shows.
+	UPROPERTY(EditDefaultsOnly, Category = "Passive Tree")
+	TSubclassOf<USkillTreeComponent> TreeClass;
+
+	// PointsText's text. {0} is the available points.
+	UPROPERTY(EditDefaultsOnly, Category = "Passive Tree")
+	FText PointsFormat;
+
+	// RuneText's text. {0} is the runes in the wallet.
+	UPROPERTY(EditDefaultsOnly, Category = "Passive Tree|Rune Tree")
+	FText RuneFormat;
+
+	// BuyPointText's text. {0} is the next point's rune cost.
+	UPROPERTY(EditDefaultsOnly, Category = "Passive Tree|Rune Tree")
+	FText BuyPointFormat;
+
+	// BuyPointText's text once every node has been claimed.
+	UPROPERTY(EditDefaultsOnly, Category = "Passive Tree|Rune Tree")
+	FText TreeCompleteText;
+
+	// The buy button's opacity while it can't be clicked.
+	UPROPERTY(EditDefaultsOnly, Category = "Passive Tree|Rune Tree", meta = (ClampMin = "0", ClampMax = "1"))
+	float DisabledBuyOpacity = 0.4f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Passive Tree")
 	TSubclassOf<UPassiveNodeWidget> NodeWidgetClass;
@@ -133,13 +175,21 @@ private:
 	UFUNCTION()
 	void HandleRefundAllClicked();
 
+	UFUNCTION()
+	void HandleBuyPointClicked();
+
+	UFUNCTION()
+	void HandleWalletChanged(FGameplayTag Currency, int32 NewBalance);
+
+	void RefreshRuneHeader();
+
 	void BuildTree();
 	void ApplyLayout();
 	void ShowResult(EPassiveNodeResult Result);
 	float GetNodeSize(EPassiveNodeType Type) const;
 
 	UPROPERTY()
-	TObjectPtr<UPassiveTreeComponent> Tree;
+	TObjectPtr<USkillTreeComponent> Tree;
 
 	// Keeps the node widgets alive. Their positions are in NodeLayouts.
 	UPROPERTY()

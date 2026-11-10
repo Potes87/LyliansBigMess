@@ -14,6 +14,8 @@ namespace
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Stat_CritChance, "Item.Stat.CritChance");
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Stat_CritDamage, "Item.Stat.CritDamage");
 	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Stat_MoveSpeed, "Player.Stat.MoveSpeed");
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Stat_ItemRarity, "Player.Stat.ItemRarity");
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Stat_CurrencyFind, "Player.Stat.CurrencyFind");
 
 	// Stops a large penalty from making a shot or reload take forever.
 	constexpr float MinSpeedMultiplier = 0.1f;
@@ -93,6 +95,16 @@ float UPlayerStatsComponent::RollCrit(UItemInstance* Item, float Damage, bool& b
 float UPlayerStatsComponent::GetMoveSpeed(float BaseSpeed) const
 {
 	return GetModifiedValue(BaseSpeed, TAG_Stat_MoveSpeed, FGameplayTagContainer());
+}
+
+float UPlayerStatsComponent::GetItemRarityMultiplier() const
+{
+	return FMath::Clamp(GetModifiedValue(1.f, TAG_Stat_ItemRarity, FGameplayTagContainer()), 0.f, MaxFindMultiplier);
+}
+
+float UPlayerStatsComponent::GetCurrencyFindMultiplier() const
+{
+	return FMath::Clamp(GetModifiedValue(1.f, TAG_Stat_CurrencyFind, FGameplayTagContainer()), 0.f, MaxFindMultiplier);
 }
 
 FGameplayTagContainer UPlayerStatsComponent::GetItemTags(const UItemInstance* Item)

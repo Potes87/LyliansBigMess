@@ -75,6 +75,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Stats|Movement")
 	float GetMoveSpeed(float BaseSpeed) const;
 
+	// What enemy loot rarity is multiplied by (Player.Stat.ItemRarity). 1 is normal; capped at MaxFindMultiplier.
+	UFUNCTION(BlueprintPure, Category = "Stats|Loot")
+	float GetItemRarityMultiplier() const;
+
+	// What currency drop chances are multiplied by (Player.Stat.CurrencyFind). 1 is normal; capped at MaxFindMultiplier.
+	UFUNCTION(BlueprintPure, Category = "Stats|Loot")
+	float GetCurrencyFindMultiplier() const;
+
+	// The most the rarity and currency find bonuses can multiply by, however many nodes give them.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats|Loot", meta = (ClampMin = "1"))
+	float MaxFindMultiplier = 2.f;
+
 	// The percent crit chance every gun starts with, before its own stat and any modifiers.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stats|Crit", meta = (ClampMin = "0", ClampMax = "100"))
 	float BaseCritChance = 5.f;

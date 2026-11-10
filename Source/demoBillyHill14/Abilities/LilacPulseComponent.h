@@ -10,6 +10,7 @@
 
 class UCameraShakeBase;
 class UNiagaraSystem;
+class UPlayerStatsComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLilacPulseFired);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnLilacPulseHit, AActor*, Enemy, float, Damage, bool, bKilled);
@@ -20,6 +21,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnLilacPulseHit, AActor*, Enemy,
  * enemies take FixedDamage and don't move. It can't crit and never triggers gun passives.
  * Add this to the player character and call TryPulse from the F input.
  * Enemies are recognised by their Blueprint "Tier" variable (EEnemyTier).
+ * Cooldown, Range and FixedDamage are base values: rune tree stats on the owner's UPlayerStatsComponent
+ * (Player.Stat.PulseCooldown, PulseReach, PulseForce) change them. Use the GetEffective functions for the real values.
  */
 UCLASS(ClassGroup = (Abilities), meta = (BlueprintSpawnableComponent))
 class DEMOBILLYHILL14_API ULilacPulseComponent : public UActorComponent
@@ -40,6 +43,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Lilac Pulse")
 	float GetCooldownProgress() const;
 
+	// Cooldown after rune tree bonuses, never below MinCooldown.
+	UFUNCTION(BlueprintPure, Category = "Lilac Pulse")
+	float GetEffectiveCooldown() const;
+
+	// Range after rune tree bonuses.
+	UFUNCTION(BlueprintPure, Category = "Lilac Pulse")
+	float GetEffectiveRange() const;
+
+	// Damage to Rare, Elite and Unique enemies after rune tree bonuses.
+	UFUNCTION(BlueprintPure, Category = "Lilac Pulse")
+	float GetEffectiveDamage() const;
+
 	// Fires on every pulse, hit or miss. Play the pulse sound here.
 	UPROPERTY(BlueprintAssignable, Category = "Lilac Pulse")
 	FOnLilacPulseFired OnPulseFired;
@@ -50,6 +65,10 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lilac Pulse", meta = (ClampMin = "0.1"))
 	float Cooldown = 4.f;
+
+	// Cooldown bonuses can't take it below this.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lilac Pulse", meta = (ClampMin = "0.1"))
+	float MinCooldown = 1.f;
 
 	// How far the pulse reaches from the camera, in Unreal units (100 = 1 m).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lilac Pulse", meta = (ClampMin = "0"))
@@ -95,8 +114,9 @@ public:
 	bool bDrawDebug = false;
 
 private:
+	const UPlayerStatsComponent* GetStats() const;
 	bool GetView(FVector& OutLocation, FRotator& OutRotation) const;
-	void HitEnemy(AActor* Enemy, uint8 Tier, const FVector& From);
+	void HitEnemy(AActor* Enemy, uint8 Tier, const FVector& From, float BossDamage);
 	static bool ReadTier(const AActor* Actor, uint8& OutTier);
 	static bool ReadCurrentHealth(const AActor* Actor, float& OutHealth);
 	void FlingRagdoll(TWeakObjectPtr<AActor> Enemy, FVector Velocity, bool bRetry);

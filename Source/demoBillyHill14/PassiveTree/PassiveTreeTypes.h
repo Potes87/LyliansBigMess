@@ -34,7 +34,11 @@ enum class EPassiveNodeResult : uint8
 	NotConnected,
 	CannotRefundStart,
 	WouldDisconnectTree,
-	MissingStatsComponent
+	MissingStatsComponent,
+	// The tree never gives points back, such as the rune tree.
+	RefundsDisabled,
+	// A placeholder node that can't be taken yet.
+	Sealed
 };
 
 /**
@@ -69,4 +73,8 @@ struct DEMOBILLYHILL14_API FPassiveNodeRow : public FTableRowBase
 	// Optional tooltip lines explaining the Effect, shown after the modifiers.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Node", meta = (MultiLine = true))
 	FText Description;
+
+	// A placeholder for something coming later. Shown on the tree, but it can't be allocated.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Node")
+	bool bSealed = false;
 };

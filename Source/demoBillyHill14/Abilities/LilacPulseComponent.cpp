@@ -4,6 +4,8 @@
 #include "LilacPulseCameraShake.h"
 #include "demoBillyHill14/Enemies/EnemyTypes.h"
 #include "demoBillyHill14/Stats/DamageType_LilacPulse.h"
+#include "demoBillyHill14/Stats/PlayerStatsComponent.h"
+#include "NativeGameplayTags.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/OverlapResult.h"
@@ -15,10 +17,42 @@
 #include "TimerManager.h"
 #include "UObject/UnrealType.h"
 
+namespace
+{
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Stat_PulseCooldown, "Player.Stat.PulseCooldown");
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Stat_PulseReach, "Player.Stat.PulseReach");
+	UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Stat_PulseForce, "Player.Stat.PulseForce");
+}
+
 ULilacPulseComponent::ULilacPulseComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 	PulseShake = ULilacPulseCameraShake::StaticClass();
+}
+
+const UPlayerStatsComponent* ULilacPulseComponent::GetStats() const
+{
+	const AActor* Owner = GetOwner();
+	return Owner ? Owner->FindComponentByClass<UPlayerStatsComponent>() : nullptr;
+}
+
+float ULilacPulseComponent::GetEffectiveCooldown() const
+{
+	const UPlayerStatsComponent* Stats = GetStats();
+	const float Value = Stats ? Stats->GetModifiedValue(Cooldown, TAG_Stat_PulseCooldown, FGameplayTagContainer()) : Cooldown;
+	return FMath::Max(FMath::Min(MinCooldown, Cooldown), Value);
+}
+
+float ULilacPulseComponent::GetEffectiveRange() const
+{
+	const UPlayerStatsComponent* Stats = GetStats();
+	return FMath::Max(0.f, Stats ? Stats->GetModifiedValue(Range, TAG_Stat_PulseReach, FGameplayTagContainer()) : Range);
+}
+
+float ULilacPulseComponent::GetEffectiveDamage() const
+{
+	const UPlayerStatsComponent* Stats = GetStats();
+	return FMath::Max(0.f, Stats ? Stats->GetModifiedValue(FixedDamage, TAG_Stat_PulseForce, FGameplayTagContainer()) : FixedDamage);
 }
 
 bool ULilacPulseComponent::IsReady() const
@@ -54,7 +88,9 @@ bool ULilacPulseComponent::TryPulse()
 	FRotator ViewRotation;
 	if (!World || !Owner || !IsReady() || !GetView(ViewLocation, ViewRotation)) return false;
 
-	World->GetTimerManager().SetTimer(CooldownTimer, Cooldown, false);
+	World->GetTimerManager().SetTimer(CooldownTimer, GetEffectiveCooldown(), false);
+	const float PulseRange = GetEffectiveRange();
+	const float BossDamage = GetEffectiveDamage();
 	const FVector Forward = ViewRotation.Vector();
 
 	// Feel: effect, camera punch, then the Blueprint event for sound.
@@ -73,7 +109,7 @@ bool ULilacPulseComponent::TryPulse()
 	TArray<FOverlapResult> Overlaps;
 	FCollisionQueryParams Query(SCENE_QUERY_STAT(LilacPulse), false, Owner);
 	World->OverlapMultiByObjectType(Overlaps, ViewLocation, FQuat::Identity,
-		FCollisionObjectQueryParams(ECC_Pawn), FCollisionShape::MakeSphere(Range), Query);
+		FCollisionObjectQueryParams(ECC_Pawn), FCollisionShape::MakeSphere(PulseRange), Query);
 
 	const float MinDot = FMath::Cos(FMath::DegreesToRadians(ConeHalfAngle));
 	TSet<AActor*> Done;
@@ -94,24 +130,24 @@ bool ULilacPulseComponent::TryPulse()
 		LineQuery.AddIgnoredActor(Enemy);
 		if (World->LineTraceSingleByObjectType(Wall, ViewLocation, Target, FCollisionObjectQueryParams(ECC_WorldStatic), LineQuery)) continue;
 
-		HitEnemy(Enemy, Tier, ViewLocation);
+		HitEnemy(Enemy, Tier, ViewLocation, BossDamage);
 	}
 
 	if (bDrawDebug)
 	{
-		DrawDebugCone(World, ViewLocation, Forward, Range, FMath::DegreesToRadians(ConeHalfAngle), FMath::DegreesToRadians(ConeHalfAngle), 16, FColor(185, 165, 224), false, 2.f);
+		DrawDebugCone(World, ViewLocation, Forward, PulseRange, FMath::DegreesToRadians(ConeHalfAngle), FMath::DegreesToRadians(ConeHalfAngle), 16, FColor(185, 165, 224), false, 2.f);
 	}
 	return true;
 }
 
-void ULilacPulseComponent::HitEnemy(AActor* Enemy, uint8 Tier, const FVector& From)
+void ULilacPulseComponent::HitEnemy(AActor* Enemy, uint8 Tier, const FVector& From, float BossDamage)
 {
 	const bool bBasic = UEnemyTierLibrary::IsBasicTier(static_cast<EEnemyTier>(Tier));
 	float Health = 0.f;
 	const bool bKnowsHealth = ReadCurrentHealth(Enemy, Health);
 	if (bKnowsHealth && Health <= 0.f) return;   // already dead
 
-	const float Damage = bBasic ? (bKnowsHealth ? FMath::CeilToFloat(Health) : KillDamage) : FixedDamage;
+	const float Damage = bBasic ? (bKnowsHealth ? FMath::CeilToFloat(Health) : KillDamage) : BossDamage;
 
 	const APawn* Pawn = Cast<APawn>(GetOwner());
 	UGameplayStatics::ApplyDamage(Enemy, Damage, Pawn ? Pawn->GetController() : nullptr, GetOwner(), UDamageType_LilacPulse::StaticClass());

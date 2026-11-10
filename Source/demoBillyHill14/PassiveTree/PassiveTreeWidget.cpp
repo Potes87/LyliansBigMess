@@ -9,9 +9,21 @@
 #include "GameFramework/PlayerController.h"
 #include "PassiveNodeWidget.h"
 #include "PassiveTreeComponent.h"
+#include "RuneTreeComponent.h"
+#include "demoBillyHill14/Wallet/WalletSubsystem.h"
 #include "Rendering/DrawElementTypes.h"
 
 #define LOCTEXT_NAMESPACE "PassiveTree"
+
+UPassiveTreeWidget::UPassiveTreeWidget(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	TreeClass = UPassiveTreeComponent::StaticClass();
+	PointsFormat = LOCTEXT("Points", "Passive points: {0}");
+	RuneFormat = LOCTEXT("Runes", "Runes of Seeking: {0}");
+	BuyPointFormat = LOCTEXT("BuyPoint", "Bind a rune \u00B7 {0}");
+	TreeCompleteText = LOCTEXT("TreeComplete", "Every rune is bound");
+}
 
 void UPassiveTreeWidget::NativeOnInitialized()
 {
@@ -24,6 +36,52 @@ void UPassiveTreeWidget::NativeOnInitialized()
 	if (RefundAllButton)
 	{
 		RefundAllButton->OnClicked.AddDynamic(this, &UPassiveTreeWidget::HandleRefundAllClicked);
+	}
+	if (BuyPointButton)
+	{
+		BuyPointButton->OnClicked.AddDynamic(this, &UPassiveTreeWidget::HandleBuyPointClicked);
+	}
+}
+
+void UPassiveTreeWidget::HandleBuyPointClicked()
+{
+	if (URuneTreeComponent* RuneTree = Cast<URuneTreeComponent>(Tree))
+	{
+		const bool bBought = RuneTree->BuyPoint();
+		if (StatusText)
+		{
+			StatusText->SetText(bBought ? FText::GetEmpty() : LOCTEXT("NotEnoughRunes", "Not enough Runes of Seeking"));
+		}
+	}
+
+	// Clicking gives the button focus, and CloseKey needs it back here.
+	SetKeyboardFocus();
+}
+
+void UPassiveTreeWidget::HandleWalletChanged(FGameplayTag Currency, int32 NewBalance)
+{
+	RefreshRuneHeader();
+}
+
+void UPassiveTreeWidget::RefreshRuneHeader()
+{
+	const URuneTreeComponent* RuneTree = Cast<URuneTreeComponent>(Tree);
+	if (!RuneTree) return;
+
+	if (RuneText)
+	{
+		RuneText->SetText(FText::Format(RuneFormat, RuneTree->GetRuneBalance()));
+	}
+	const bool bComplete = RuneTree->GetAvailablePoints() >= RuneTree->GetUnclaimedNodeCount();
+	if (BuyPointText)
+	{
+		BuyPointText->SetText(bComplete ? TreeCompleteText : FText::Format(BuyPointFormat, RuneTree->GetNextPointCost()));
+	}
+	if (BuyPointButton)
+	{
+		const bool bCanBuy = RuneTree->CanBuyPoint();
+		BuyPointButton->SetIsEnabled(bCanBuy);
+		BuyPointButton->SetRenderOpacity(bCanBuy ? 1.f : DisabledBuyOpacity);
 	}
 }
 
@@ -44,11 +102,24 @@ void UPassiveTreeWidget::NativeConstruct()
 	Super::NativeConstruct();
 
 	const APawn* Pawn = GetOwningPlayerPawn();
-	Tree = Pawn ? Pawn->FindComponentByClass<UPassiveTreeComponent>() : nullptr;
+	const TSubclassOf<USkillTreeComponent> ClassToFind = TreeClass ? TreeClass : TSubclassOf<USkillTreeComponent>(UPassiveTreeComponent::StaticClass());
+	Tree = Pawn ? Cast<USkillTreeComponent>(Pawn->FindComponentByClass(ClassToFind)) : nullptr;
 	if (!Tree)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("%s couldn't find a PassiveTreeComponent on the player's pawn."), *GetName());
+		UE_LOG(LogTemp, Warning, TEXT("%s couldn't find a %s on the player's pawn."), *GetName(), *GetNameSafe(ClassToFind));
 		return;
+	}
+
+	if (RefundAllButton && !Tree->AllowsRefunds())
+	{
+		RefundAllButton->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (Tree->IsA<URuneTreeComponent>())
+	{
+		if (UWalletSubsystem* Wallet = GetGameInstance() ? GetGameInstance()->GetSubsystem<UWalletSubsystem>() : nullptr)
+		{
+			Wallet->OnWalletChanged.AddUniqueDynamic(this, &UPassiveTreeWidget::HandleWalletChanged);
+		}
 	}
 
 	// Construct runs again if this widget is reused, and the nodes only need creating once.
@@ -66,6 +137,10 @@ void UPassiveTreeWidget::NativeDestruct()
 	if (Tree)
 	{
 		Tree->OnPassiveTreeChanged.RemoveDynamic(this, &UPassiveTreeWidget::RefreshTree);
+	}
+	if (UWalletSubsystem* Wallet = GetGameInstance() ? GetGameInstance()->GetSubsystem<UWalletSubsystem>() : nullptr)
+	{
+		Wallet->OnWalletChanged.RemoveDynamic(this, &UPassiveTreeWidget::HandleWalletChanged);
 	}
 	Super::NativeDestruct();
 }
@@ -115,6 +190,8 @@ FText UPassiveTreeWidget::GetResultText(EPassiveNodeResult Result)
 	case EPassiveNodeResult::CannotRefundStart: return LOCTEXT("CannotRefundStart", "The starting node can't be refunded");
 	case EPassiveNodeResult::WouldDisconnectTree: return LOCTEXT("WouldDisconnect", "Other nodes depend on this one");
 	case EPassiveNodeResult::MissingStatsComponent: return LOCTEXT("MissingStats", "The player has no stats component");
+	case EPassiveNodeResult::RefundsDisabled: return LOCTEXT("RefundsDisabled", "Bound runes are permanent");
+	case EPassiveNodeResult::Sealed: return LOCTEXT("Sealed", "Sealed. Something waits here");
 	}
 	return FText::GetEmpty();
 }
@@ -206,8 +283,9 @@ void UPassiveTreeWidget::RefreshTree()
 
 	if (PointsText)
 	{
-		PointsText->SetText(FText::Format(LOCTEXT("Points", "Passive points: {0}"), Tree->GetAvailablePoints()));
+		PointsText->SetText(FText::Format(PointsFormat, Tree->GetAvailablePoints()));
 	}
+	RefreshRuneHeader();
 	InvalidateLayoutAndVolatility();
 }
 

@@ -3,8 +3,18 @@
 #include "LootLibrary.h"
 #include "LootTable.h"
 #include "demoBillyHill14/Items/ItemDefinition.h"
+#include "demoBillyHill14/Stats/PlayerStatsComponent.h"
+#include "Engine/Engine.h"
+#include "GameFramework/Pawn.h"
+#include "Kismet/GameplayStatics.h"
 
-TSubclassOf<UItemDefinition> ULootLibrary::RollLoot(const ULootTable* Table, float DropChancePercent, bool& bDropped)
+const UPlayerStatsComponent* ULootLibrary::FindPlayerStats(const UObject* WorldContextObject)
+{
+	const APawn* Player = UGameplayStatics::GetPlayerPawn(WorldContextObject, 0);
+	return Player ? Player->FindComponentByClass<UPlayerStatsComponent>() : nullptr;
+}
+
+TSubclassOf<UItemDefinition> ULootLibrary::RollLoot(const UObject* WorldContextObject, const ULootTable* Table, float DropChancePercent, bool& bDropped)
 {
 	bDropped = false;
 	if (FMath::FRand() * 100.f >= DropChancePercent)
@@ -12,17 +22,26 @@ TSubclassOf<UItemDefinition> ULootLibrary::RollLoot(const ULootTable* Table, flo
 		return nullptr;
 	}
 
-	TSubclassOf<UItemDefinition> Item = PickLootItem(Table);
+	TSubclassOf<UItemDefinition> Item = PickLootItem(WorldContextObject, Table);
 	bDropped = Item != nullptr;
 	return Item;
 }
 
-TSubclassOf<UItemDefinition> ULootLibrary::PickLootItem(const ULootTable* Table)
+TSubclassOf<UItemDefinition> ULootLibrary::PickLootItem(const UObject* WorldContextObject, const ULootTable* Table)
 {
 	if (!Table)
 	{
 		return nullptr;
 	}
+
+	// Item Rarity multiplies the weight of every rarity better than Common.
+	const UPlayerStatsComponent* Stats = FindPlayerStats(WorldContextObject);
+	const float RarityMultiplier = Stats ? Stats->GetItemRarityMultiplier() : 1.f;
+	auto GetRarityWeight = [Table, RarityMultiplier](EItemRarity Rarity)
+	{
+		const float Weight = FMath::Max(Table->RarityWeights.FindRef(Rarity), 0.f);
+		return Rarity > EItemRarity::Common && Rarity != EItemRarity::Quest ? Weight * RarityMultiplier : Weight;
+	};
 
 	// Group the usable entries by rarity, and total each group's weight.
 	TMap<EItemRarity, TArray<const FLootEntry*>> ByRarity;
@@ -42,7 +61,7 @@ TSubclassOf<UItemDefinition> ULootLibrary::PickLootItem(const ULootTable* Table)
 	float RarityTotal = 0.f;
 	for (const TPair<EItemRarity, TArray<const FLootEntry*>>& Group : ByRarity)
 	{
-		RarityTotal += FMath::Max(Table->RarityWeights.FindRef(Group.Key), 0.f);
+		RarityTotal += GetRarityWeight(Group.Key);
 	}
 	if (RarityTotal <= 0.f)
 	{
@@ -53,7 +72,7 @@ TSubclassOf<UItemDefinition> ULootLibrary::PickLootItem(const ULootTable* Table)
 	float Roll = FMath::FRand() * RarityTotal;
 	for (const TPair<EItemRarity, TArray<const FLootEntry*>>& Group : ByRarity)
 	{
-		const float Weight = FMath::Max(Table->RarityWeights.FindRef(Group.Key), 0.f);
+		const float Weight = GetRarityWeight(Group.Key);
 		if (Weight <= 0.f)
 		{
 			continue;
@@ -80,7 +99,7 @@ TSubclassOf<UItemDefinition> ULootLibrary::PickLootItem(const ULootTable* Table)
 	return Candidates.Last()->Item;
 }
 
-TArray<FCurrencyDropResult> ULootLibrary::RollCurrencyDrops(const UCurrencyDropTable* Table, EEnemyTier Tier)
+TArray<FCurrencyDropResult> ULootLibrary::RollCurrencyDrops(const UObject* WorldContextObject, const UCurrencyDropTable* Table, EEnemyTier Tier)
 {
 	TArray<FCurrencyDropResult> Results;
 	if (!Table)
@@ -88,7 +107,9 @@ TArray<FCurrencyDropResult> ULootLibrary::RollCurrencyDrops(const UCurrencyDropT
 		return Results;
 	}
 	const float* FoundMultiplier = Table->TierChanceMultiplier.Find(Tier);
-	const float Multiplier = FoundMultiplier ? FMath::Max(*FoundMultiplier, 0.f) : 1.f;
+	const UPlayerStatsComponent* Stats = FindPlayerStats(WorldContextObject);
+	const float FindMultiplier = Stats ? Stats->GetCurrencyFindMultiplier() : 1.f;
+	const float Multiplier = (FoundMultiplier ? FMath::Max(*FoundMultiplier, 0.f) : 1.f) * FindMultiplier;
 	for (const FCurrencyDropEntry& Entry : Table->Entries)
 	{
 		if (!Entry.Item || FMath::FRand() * 100.f >= Entry.ChancePercent * Multiplier)
