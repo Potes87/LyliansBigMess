@@ -79,3 +79,25 @@ TSubclassOf<UItemDefinition> ULootLibrary::PickLootItem(const ULootTable* Table)
 	}
 	return Candidates.Last()->Item;
 }
+
+TArray<FCurrencyDropResult> ULootLibrary::RollCurrencyDrops(const UCurrencyDropTable* Table, EEnemyTier Tier)
+{
+	TArray<FCurrencyDropResult> Results;
+	if (!Table)
+	{
+		return Results;
+	}
+	const float* FoundMultiplier = Table->TierChanceMultiplier.Find(Tier);
+	const float Multiplier = FoundMultiplier ? FMath::Max(*FoundMultiplier, 0.f) : 1.f;
+	for (const FCurrencyDropEntry& Entry : Table->Entries)
+	{
+		if (!Entry.Item || FMath::FRand() * 100.f >= Entry.ChancePercent * Multiplier)
+		{
+			continue;
+		}
+		FCurrencyDropResult& Result = Results.AddDefaulted_GetRef();
+		Result.Item = Entry.Item;
+		Result.Count = FMath::RandRange(Entry.MinCount, FMath::Max(Entry.MinCount, Entry.MaxCount));
+	}
+	return Results;
+}

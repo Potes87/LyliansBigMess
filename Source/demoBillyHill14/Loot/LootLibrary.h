@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "Templates/SubclassOf.h"
+#include "CurrencyDropTable.h"
 #include "LootLibrary.generated.h"
 
 class ULootTable;
@@ -30,4 +31,8 @@ public:
 	// Picks an item from Table with no drop chance roll. Returns null if the table has nothing that can drop.
 	UFUNCTION(BlueprintCallable, Category = "Loot")
 	static TSubclassOf<UItemDefinition> PickLootItem(const ULootTable* Table);
+
+	// Rolls every entry of a currency table for one kill. Returns one result per pickup to spawn (often none).
+	UFUNCTION(BlueprintCallable, Category = "Loot")
+	static TArray<FCurrencyDropResult> RollCurrencyDrops(const UCurrencyDropTable* Table, EEnemyTier Tier);
 };
