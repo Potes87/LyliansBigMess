@@ -5,6 +5,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Components/WidgetComponent.h"
 #include "Components/ProgressBar.h"
+#include "Components/Border.h"
 #include "Blueprint/UserWidget.h"
 #include "NiagaraFunctionLibrary.h"
 #include "Kismet/GameplayStatics.h"
@@ -247,7 +248,19 @@ void UArmorComponent::RefreshBar()
 			continue;
 		}
 		Bar->SetPercent(GetArmorPercent());
-		Bar->SetVisibility(Armor > 0.f ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		const ESlateVisibility Vis = Armor > 0.f ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed;
+		Bar->SetVisibility(Vis);
+
+		// The armor bar sits in its own framed row ("ArmorRow"): show/hide the whole row, frame included,
+		// and give its frame the same tier colour as the health frame ("TierFrame").
+		if (UBorder* Row = Cast<UBorder>(UW->GetWidgetFromName(TEXT("ArmorRow"))))
+		{
+			Row->SetVisibility(Vis);
+			if (const UBorder* HealthFrame = Cast<UBorder>(UW->GetWidgetFromName(TEXT("TierFrame"))))
+			{
+				Row->SetBrushColor(HealthFrame->GetBrushColor());
+			}
+		}
 		if (Armor < MaxArmor)
 		{
 			WC->SetVisibility(true); // the health bar only appears after the first hit; armor hits count too

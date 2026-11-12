@@ -7,6 +7,8 @@
 #include "NavigationSystem.h"
 #include "GameFramework/Pawn.h"
 #include "Kismet/GameplayStatics.h"
+#include "Components/AudioComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "TimerManager.h"
 #include "Engine/World.h"
 
@@ -102,9 +104,57 @@ void UBossBrainComponent::Think()
 {
 	APawn* Pawn = Cast<APawn>(GetOwner());
 	AAIController* AI = Pawn ? Cast<AAIController>(Pawn->GetController()) : nullptr;
-	if (!AI)
+	// IsValid also catches a controller that was destroyed but not cleaned up yet (the death logic
+	// destroys it, and the pawn's pointer only clears later). Without this he kept "attacking" as a corpse.
+	// The enemy death logic also ragdolls the mesh, so a simulating body means dead too.
+	const USkeletalMeshComponent* Body = Pawn ? Pawn->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
+	const bool bRagdolled = Body && Body->IsSimulatingPhysics();
+	if (bRagdolled || !IsValid(AI) || !IsValid(Pawn) || AI->GetPawn() != Pawn)
 	{
-		// No controller: dead (the death logic destroys it) or not possessed yet.
+		// Only stop for good when he is surely dead (ragdoll); a missing controller can also just mean
+		// "not possessed yet" right after spawning.
+		UWorld* World = GetWorld();
+		if (bRagdolled && World)
+		{
+			World->GetTimerManager().ClearTimer(ThinkTimer);
+		}
+		if (IsValid(AI))
+		{
+			AI->StopMovement();
+			AI->ClearFocus(EAIFocusPriority::Gameplay);
+		}
+		// No live controller: dead or not possessed yet.
+		// Fade out any sound attached to him (attack cries etc.) so nothing keeps playing on the corpse.
+		// Note: Spawn Sound Attached makes the sound belong to the world, not to him, so GetComponents
+		// alone misses it. Also check everything attached to each of his parts (the mesh in particular).
+		if (AActor* Owner = GetOwner())
+		{
+			TArray<UAudioComponent*> Sounds;
+			Owner->GetComponents<UAudioComponent>(Sounds);
+			TArray<USceneComponent*> Parts;
+			Owner->GetComponents<USceneComponent>(Parts);
+			for (USceneComponent* Part : Parts)
+			{
+				if (!Part)
+				{
+					continue;
+				}
+				for (USceneComponent* Child : Part->GetAttachChildren())
+				{
+					if (UAudioComponent* S = Cast<UAudioComponent>(Child))
+					{
+						Sounds.AddUnique(S);
+					}
+				}
+			}
+			for (UAudioComponent* S : Sounds)
+			{
+				if (IsValid(S) && S->IsPlaying())
+				{
+					S->FadeOut(0.15f, 0.f);
+				}
+			}
+		}
 		return;
 	}
 
