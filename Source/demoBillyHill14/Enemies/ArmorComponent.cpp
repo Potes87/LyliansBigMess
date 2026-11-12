@@ -124,7 +124,6 @@ void UArmorComponent::BreakOnePiece()
 	const FVector Out = (PieceCenter - Center).GetSafeNormal2D();
 
 	Piece->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
-	Piece->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	if (BreakFX)
 	{
@@ -141,6 +140,29 @@ void UArmorComponent::BreakOnePiece()
 	}
 	D.SpinDegPerSec = FMath::FRandRange(240.f, 420.f);
 	D.StartScale = Piece->GetComponentScale();
+
+	// Real physics: the plate only bumps into the world (ground, walls). It ignores the player, enemies,
+	// bullets and the other plates, so it never blocks shots or trips anyone.
+	Piece->SetMobility(EComponentMobility::Movable);
+	Piece->SetCollisionObjectType(ECC_PhysicsBody);
+	Piece->SetCollisionResponseToAllChannels(ECR_Ignore);
+	Piece->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+	Piece->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+	Piece->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
+	Piece->SetSimulatePhysics(true);
+
+	if (Piece->IsSimulatingPhysics())
+	{
+		Piece->SetPhysicsLinearVelocity(D.Velocity);
+		Piece->SetPhysicsAngularVelocityInDegrees(FMath::VRand() * FMath::FRandRange(200.f, 420.f));
+		D.bLanded = true; // physics moves it; the tick below only handles the fade
+	}
+	else
+	{
+		// No collision shape on this mesh: fall back to the hand-made tumble.
+		Piece->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+
 	Debris.Add(D);
 	SetComponentTickEnabled(true);
 }
@@ -185,6 +207,11 @@ void UArmorComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActor
 
 		if (D.Age > DebrisLifetime)
 		{
+			if (M->IsSimulatingPhysics())
+			{
+				M->SetSimulatePhysics(false); // freeze where it lies, then shrink
+				M->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			}
 			const float T = FMath::Clamp((D.Age - DebrisLifetime) / ShrinkTime, 0.f, 1.f);
 			M->SetWorldScale3D(D.StartScale * FMath::Max(1.f - T, 0.01f));
 			if (T >= 1.f)
