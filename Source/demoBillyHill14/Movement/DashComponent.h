@@ -7,6 +7,8 @@
 #include "Engine/TimerHandle.h"
 #include "DashComponent.generated.h"
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDashedSignature, FVector, Direction);
+
 /**
  * Gives a character a quick burst of movement, on the ground or in the air. It goes the way the player is moving,
  * or forward if they aren't moving. Add this to a Character and call TryDash from an input event.
@@ -25,6 +27,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Dash")
 	int32 GetChargesLeft() const { return ChargesLeft; }
+
+	// Fired when a dash starts, with its flat world direction (for camera kick, sounds, effects).
+	UPROPERTY(BlueprintAssignable, Category = "Dash")
+	FDashedSignature OnDashed;
 
 	// How far the current charge is through its cooldown, from 0 to 1. Returns 1 when no charge is recovering.
 	UFUNCTION(BlueprintPure, Category = "Dash")

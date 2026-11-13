@@ -44,6 +44,7 @@ bool UDashComponent::TryDash()
 	Movement->ApplyRootMotionSource(Dash);
 
 	--ChargesLeft;
+	OnDashed.Broadcast(Direction);
 
 	FTimerManager& TimerManager = GetWorld()->GetTimerManager();
 	if (!TimerManager.IsTimerActive(CooldownTimer))
