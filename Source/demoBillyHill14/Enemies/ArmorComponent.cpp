@@ -45,11 +45,28 @@ float UArmorComponent::AbsorbDamage(AActor* Target, float Damage)
 	return ArmorComp ? ArmorComp->Absorb(Damage) : Damage;
 }
 
+float UArmorComponent::GetDamageMultiplier(AActor* Target)
+{
+	const UArmorComponent* ArmorComp = Target ? Target->FindComponentByClass<UArmorComponent>() : nullptr;
+	return (ArmorComp && ArmorComp->MaxArmor > 0.f && ArmorComp->Armor <= 0.f) ? ArmorComp->CoreDamageMultiplier : 1.f;
+}
+
+bool UArmorComponent::IsCoreExposed(AActor* Target)
+{
+	const UArmorComponent* ArmorComp = Target ? Target->FindComponentByClass<UArmorComponent>() : nullptr;
+	return ArmorComp && ArmorComp->MaxArmor > 0.f && ArmorComp->Armor <= 0.f;
+}
+
 float UArmorComponent::Absorb(float Damage)
 {
-	if (Armor <= 0.f || Damage <= 0.f)
+	if (Damage <= 0.f)
 	{
 		return Damage;
+	}
+	if (Armor <= 0.f)
+	{
+		// Armor gone: the exposed core takes bonus damage.
+		return MaxArmor > 0.f ? Damage * CoreDamageMultiplier : Damage;
 	}
 
 	const float Used = FMath::Min(Armor, Damage);

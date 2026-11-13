@@ -37,6 +37,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Armor")
 	static float AbsorbDamage(AActor* Target, float Damage);
 
+	// Damage multiplier for a hit on Target: CoreDamageMultiplier once its armor is all gone, otherwise 1.
+	// Use it for the damage number so the popup shows the real (bonus) damage.
+	UFUNCTION(BlueprintPure, Category = "Armor")
+	static float GetDamageMultiplier(AActor* Target);
+
+	// True when Target has an Armor component and all of its armor is gone (core exposed).
+	UFUNCTION(BlueprintPure, Category = "Armor")
+	static bool IsCoreExposed(AActor* Target);
+
+	// Once the armor is gone, hits on the exposed core do this much more damage.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Armor", meta = (ClampMin = "0"))
+	float CoreDamageMultiplier = 1.5f;
+
 	UFUNCTION(BlueprintPure, Category = "Armor")
 	float GetArmor() const { return Armor; }
 
