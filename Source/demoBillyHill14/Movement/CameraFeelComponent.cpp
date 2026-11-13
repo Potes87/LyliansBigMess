@@ -58,6 +58,16 @@ void UCameraFeelComponent::BeginPlay()
 	{
 		Target = Camera.Get();
 	}
+	for (USceneComponent* S : Scenes)
+	{
+		if (S && S->GetFName() == ArmsComponentName)
+		{
+			Arms = S;
+			ArmsBaseLocation = S->GetRelativeLocation();
+			ArmsBaseRotation = S->GetRelativeRotation().Quaternion();
+			break;
+		}
+	}
 	if (USceneComponent* T = Target.Get())
 	{
 		BaseLocation = T->GetRelativeLocation();
@@ -103,6 +113,15 @@ void UCameraFeelComponent::KickDash(FVector Direction)
 	DashSide = FVector::DotProduct(Dir, FRotationMatrix(Yaw).GetUnitAxis(EAxis::Y));
 	DashForward = FVector::DotProduct(Dir, FRotationMatrix(Yaw).GetUnitAxis(EAxis::X));
 	Dash.V += FMath::Sqrt(DashStiffness) * 1.6f;
+}
+
+void UCameraFeelComponent::KickRecoil(float Strength)
+{
+	const float S = Strength * FMath::Lerp(1.f, AimRecoilScale, AimAlpha);
+	const float W = FMath::Sqrt(RecoilStiffness) * 1.6f;
+	RecoilUp.V += S * W;                            // unitless 0..~1, scaled by RecoilPitch in tick
+	RecoilSide.V += S * W * FMath::FRandRange(-1.f, 1.f);
+	ArmsRecoil.V += S * W;
 }
 
 void UCameraFeelComponent::HandleLanded(const FHitResult& Hit)
@@ -207,6 +226,9 @@ void UCameraFeelComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
 	Lean.Step(-LocalRight / SprintSpeed * StrafeRoll, 60.f, 1.f, Dt);
 	Landing.Step(0.f, LandingStiffness, LandingDamping, Dt);
 	Dash.Step(0.f, DashStiffness, 0.7f, Dt);
+	RecoilUp.Step(0.f, RecoilStiffness, RecoilDamping, Dt);
+	RecoilSide.Step(0.f, RecoilStiffness, RecoilDamping, Dt);
+	ArmsRecoil.Step(0.f, RecoilStiffness * 0.8f, RecoilDamping, Dt);
 
 	const float Breath = (1.f - MoveAlpha) * BreathHeight * 0.5f * FMath::Sin(2.f * PI * BreathRate * Time);
 
@@ -218,6 +240,9 @@ void UCameraFeelComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
 		Roll * Sway * BobScale + Lean.X + Dash.X * DashRoll * DashSide);
 	CamLoc *= Intensity;
 	CamRot *= Intensity;
+	// Recoil is gameplay feedback, not bob, so the Intensity setting doesn't remove it.
+	CamRot.Pitch += RecoilUp.X * RecoilPitch;
+	CamRot.Yaw += RecoilSide.X * RecoilYaw;
 	CameraOffset = CamLoc;
 	CameraRotation = CamRot;
 
@@ -264,4 +289,18 @@ void UCameraFeelComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
 		ArmsRot[0].X + Nod * ArmsDown * ArmsBob,
 		ArmsRot[1].X,
 		ArmsRot[2].X + Roll * ArmsSway * ArmsBob);
+
+	ArmsOffset.X -= ArmsRecoil.X * ArmsRecoilBack;
+	ArmsRotation.Pitch += ArmsRecoil.X * ArmsRecoilPitch;
+
+	// Move the arms mesh (child of the camera, so its relative space is camera space), rotating around ArmsPivot.
+	if (bDriveArms)
+	{
+		if (USceneComponent* A = Arms.Get())
+		{
+			const FQuat R = ArmsRotation.Quaternion();
+			const FVector Loc = ArmsPivot + R.RotateVector(ArmsBaseLocation - ArmsPivot) + ArmsOffset;
+			A->SetRelativeLocationAndRotation(Loc, R * ArmsBaseRotation);
+		}
+	}
 }

@@ -195,6 +195,49 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Arms", meta = (ClampMin = "0", ClampMax = "1"))
 	float AimArmsScale = 0.25f;
 
+	// Move the arms mesh (a child of the camera) by ArmsOffset / ArmsRotation directly. Turn off to compare with the template sway.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Arms")
+	bool bDriveArms = true;
+
+	// Name of the arms mesh component (must be attached under the camera).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Arms")
+	FName ArmsComponentName = TEXT("ArmGun1");
+
+	// Point the arms rotate around, in camera space (X forward, Y right, Z up, cm): roughly where the hands hold the gun.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Arms")
+	FVector ArmsPivot = FVector(35.f, 0.f, -12.f);
+
+	// ---- Recoil kick (call KickRecoil on every shot) ----
+
+	// Camera kick per shot in degrees: up, and random left/right.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Recoil", meta = (ClampMin = "0"))
+	float RecoilPitch = 0.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Recoil", meta = (ClampMin = "0"))
+	float RecoilYaw = 0.2f;
+
+	// Arms kick per shot: cm back toward the camera, and degrees of muzzle rise.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Recoil", meta = (ClampMin = "0"))
+	float ArmsRecoilBack = 1.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Recoil", meta = (ClampMin = "0"))
+	float ArmsRecoilPitch = 2.f;
+
+	// Recoil while aiming down sights, as a share of the hip recoil.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Recoil", meta = (ClampMin = "0", ClampMax = "1"))
+	float AimRecoilScale = 0.6f;
+
+	// How fast the kick snaps back, and how bouncy (lower damping = more bounce).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Recoil", meta = (ClampMin = "1"))
+	float RecoilStiffness = 260.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Recoil", meta = (ClampMin = "0.05", ClampMax = "2"))
+	float RecoilDamping = 0.65f;
+
+	// One shot's kick. Strength scales everything (1 = the values above; use per gun, e.g. 2 for a heavy rifle).
+	UFUNCTION(BlueprintCallable, Category = "Camera Feel")
+	void KickRecoil(float Strength = 1.f);
+
 	// ---- Output (read these in the arms animation Blueprint) ----
 
 	// Arms offset in camera space: X forward, Y right, Z up (cm).
@@ -269,4 +312,12 @@ private:
 
 	FSpring ArmsLoc[3];
 	FSpring ArmsRot[3];
+
+	FSpring RecoilUp;
+	FSpring RecoilSide;
+	FSpring ArmsRecoil;
+
+	TWeakObjectPtr<USceneComponent> Arms;
+	FVector ArmsBaseLocation = FVector::ZeroVector;
+	FQuat ArmsBaseRotation = FQuat::Identity;
 };
