@@ -9,6 +9,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "CollisionQueryParams.h"
 #include "DrawDebugHelpers.h"
@@ -30,11 +31,12 @@ void UEnemyAwarenessComponent::BeginPlay()
 	Super::BeginPlay();
 
 	AllAware.RemoveAll([](const TWeakObjectPtr<UEnemyAwarenessComponent>& C) { return !C.IsValid(); });
-	AllAware.Add(this);
+	AllAware.AddUnique(this);
 
 	if (AActor* Owner = GetOwner())
 	{
-		Owner->OnTakeAnyDamage.AddDynamic(this, &UEnemyAwarenessComponent::HandleOwnerDamaged);
+		// Unique: BeginPlay can run twice on an actor when World Partition streams its cell in.
+		Owner->OnTakeAnyDamage.AddUniqueDynamic(this, &UEnemyAwarenessComponent::HandleOwnerDamaged);
 		HomeLocation = Owner->GetActorLocation();
 	}
 	CircleDir = FMath::RandBool() ? 1.f : -1.f;
@@ -79,9 +81,15 @@ void UEnemyAwarenessComponent::NoteSeen(const FVector& Where)
 
 bool UEnemyAwarenessComponent::IsAlive() const
 {
-	// The enemy death logic destroys the controller, so a pawn without one is dead (or not set up yet).
+	// The enemy death logic destroys the controller (the pawn can keep a stale pointer to it, so IsValid, not just
+	// non-null) and turns the mesh into a ragdoll. Either means dead.
 	const APawn* Pawn = Cast<APawn>(GetOwner());
-	return Pawn && IsValid(Pawn) && Pawn->GetController() != nullptr;
+	if (!IsValid(Pawn) || Pawn->IsActorBeingDestroyed() || !IsValid(Pawn->GetController())) return false;
+	if (const ACharacter* Char = Cast<ACharacter>(Pawn))
+	{
+		if (Char->GetMesh() && Char->GetMesh()->IsSimulatingPhysics()) return false;
+	}
+	return true;
 }
 
 void UEnemyAwarenessComponent::SetFlagOnOwner(bool bValue) const
