@@ -1,6 +1,7 @@
 ﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "BossBrainComponent.h"
+#include "EnemyAwarenessComponent.h"
 
 #include "AIController.h"
 #include "Navigation/PathFollowingComponent.h"
@@ -171,7 +172,11 @@ void UBossBrainComponent::Think()
 
 	if (!bAggroed)
 	{
-		if (Dist > AggroRange)
+		// Wake through the Awareness component (line of sight, close sense, group alerts) when the boss has one.
+		// Only bosses without Awareness fall back to the old plain-distance AggroRange check.
+		const UEnemyAwarenessComponent* Awareness = Pawn->FindComponentByClass<UEnemyAwarenessComponent>();
+		const bool bWake = Awareness ? Awareness->IsAggroed() : (Dist <= AggroRange);
+		if (!bWake)
 		{
 			return;
 		}
