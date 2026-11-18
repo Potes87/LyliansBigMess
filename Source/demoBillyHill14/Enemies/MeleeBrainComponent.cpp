@@ -89,6 +89,7 @@ void UMeleeBrainComponent::BeginPlay()
 		if (Char->GetMesh() && !bHasMeshBase)
 		{
 			MeshBaseRotation = Char->GetMesh()->GetRelativeRotation().Quaternion();
+			MeshBaseLocation = Char->GetMesh()->GetRelativeLocation();
 			bHasMeshBase = true;
 		}
 		// Run before the movement component each frame, so the lunge speed we set is the speed it moves with.
@@ -460,19 +461,11 @@ void UMeleeBrainComponent::EndAttack()
 	LungeSpeed = 0.f;
 	NextAttackTime = Now() + FMath::FRandRange(AttackPauseMin, FMath::Max(AttackPauseMin, AttackPauseMax));
 	SetOwnerAttacking(false);
-	SetComponentTickEnabled(false);
+	SetComponentTickEnabled(IsFlinching()); // a flinch still needs the tick to settle
 
 	// Stand the mesh back up (unless it has become a ragdoll).
-	if (bHasMeshBase)
-	{
-		if (const ACharacter* Char = Cast<ACharacter>(GetOwner()))
-		{
-			if (Char->GetMesh() && !Char->GetMesh()->IsSimulatingPhysics())
-			{
-				Char->GetMesh()->SetRelativeRotation(MeshBaseRotation);
-			}
-		}
-	}
+	LeanDegrees = 0.f;
+	ApplyMeshPose();
 	UpdateLocomotion(); // back to idle / run straight away, so it never sits on the last frame of an attack clip
 	if (bWasBusy)
 	{
@@ -486,6 +479,21 @@ void UMeleeBrainComponent::HandleOwnerDamaged(AActor* DamagedActor, float Damage
                                               AController* InstigatedBy, AActor* DamageCauser)
 {
 	if (Damage <= 0.f || !IsAlive()) return;
+
+	if (bFlinch)
+	{
+		// Jolt away from whoever shot it. Bigger hits and headshots jolt harder.
+		const AActor* Owner = GetOwner();
+		const AActor* Source = DamageCauser ? DamageCauser : (InstigatedBy ? InstigatedBy->GetPawn() : nullptr);
+		FVector Away = Source ? (Owner->GetActorLocation() - Source->GetActorLocation()).GetSafeNormal2D() : FVector::ZeroVector;
+		if (Away.IsNearlyZero()) Away = -Owner->GetActorForwardVector().GetSafeNormal2D();
+		bool bFlinchCrit = false;
+		bool bFlinchHead = false;
+		UCombatHelpers::BreakHitDamageType(DamageType, bFlinchCrit, bFlinchHead);
+		float Strength = FMath::Clamp(Damage / FMath::Max(OwnerMaxHealth() * 0.1f, 1.f), 0.6f, 1.4f);
+		if (bFlinchHead) Strength *= HeadshotFlinchScale;
+		StartFlinch(Away, Strength);
+	}
 
 	if (Now() - LastDamageTime > StaggerResetTime)
 	{
@@ -537,18 +545,24 @@ void UMeleeBrainComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	if (State == EMeleeState::Idle)
-	{
-		SetComponentTickEnabled(false);
-		return;
-	}
 	if (!IsAlive())
 	{
-		// Died mid-attack: let go without touching the ragdoll.
+		// Died (maybe mid-attack): let go without touching the ragdoll.
 		State = EMeleeState::Idle;
 		Current = INDEX_NONE;
 		LungeSpeed = 0.f;
+		FlinchStart = -1000.f;
 		SetComponentTickEnabled(false);
+		return;
+	}
+	if (State == EMeleeState::Idle)
+	{
+		// Not attacking: the only reason to be ticking is a flinch that has not settled yet.
+		ApplyMeshPose();
+		if (!IsFlinching())
+		{
+			SetComponentTickEnabled(false);
+		}
 		return;
 	}
 
@@ -642,19 +656,71 @@ void UMeleeBrainComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
 	}
 
 	UpdateLean();
+	ApplyMeshPose();
 	if (bDebugDraw)
 	{
 		DrawDebug();
 	}
 }
 
+// ------------------------------------------------------------------ flinch + mesh pose
+
+bool UMeleeBrainComponent::IsFlinching() const
+{
+	return bFlinch && (Now() - FlinchStart) < FlinchTime;
+}
+
+void UMeleeBrainComponent::StartFlinch(const FVector& WorldDirection, float Strength)
+{
+	const AActor* Owner = GetOwner();
+	if (!Owner || !bHasMeshBase) return;
+	FlinchDirLocal = Owner->GetActorTransform().InverseTransformVectorNoScale(WorldDirection).GetSafeNormal2D();
+	FlinchStrength = Strength;
+	FlinchStart = Now();           // a new hit restarts it, so rapid fire keeps it shuddering
+	SetComponentTickEnabled(true);
+	OnFlinched.Broadcast();
+}
+
+void UMeleeBrainComponent::ApplyMeshPose()
+{
+	// Everything that moves the whole mesh inside its capsule goes through here: the flinch and the placeholder lean.
+	if (!bHasMeshBase) return;
+	const ACharacter* Char = Cast<ACharacter>(GetOwner());
+	USkeletalMeshComponent* Mesh = Char ? Char->GetMesh() : nullptr;
+	if (!Mesh || Mesh->IsSimulatingPhysics()) return;
+
+	float Flinch = 0.f;
+	if (IsFlinching())
+	{
+		// Snaps out in 0.03 s, then eases back.
+		const float T = Now() - FlinchStart;
+		const float In = FMath::Min(0.03f, FlinchTime * 0.5f);
+		Flinch = (T < In ? T / In : 1.f - FMath::SmoothStep(0.f, 1.f, (T - In) / FMath::Max(FlinchTime - In, 0.01f))) * FlinchStrength;
+	}
+	const bool bWantPose = Flinch > 0.f || !FMath::IsNearlyZero(LeanDegrees);
+	if (!bWantPose && !bMeshPosed) return;   // already standing on its base pose: leave the mesh alone
+
+	// Pitch up is positive in Unreal, so leaning forward is a negative pitch (in the capsule's space).
+	const FQuat Lean = FRotator(-LeanDegrees, 0.f, 0.f).Quaternion();
+	FQuat Tip = FQuat::Identity;
+	FVector Shove = FVector::ZeroVector;
+	if (Flinch > 0.f && !FlinchDirLocal.IsNearlyZero())
+	{
+		// Tip the top of the body away from the shot (it pivots at the feet) and shove it the same way.
+		const FVector Tilted = (FVector::UpVector + FlinchDirLocal * FMath::Tan(FMath::DegreesToRadians(FlinchAngle * Flinch))).GetSafeNormal();
+		Tip = FQuat::FindBetweenNormals(FVector::UpVector, Tilted);
+		Shove = FlinchDirLocal * FlinchDistance * Flinch;
+	}
+	Mesh->SetRelativeLocationAndRotation(MeshBaseLocation + Shove, Tip * Lean * MeshBaseRotation);
+	bMeshPosed = bWantPose;
+}
+
 // ------------------------------------------------------------------ testing aids
 
 void UMeleeBrainComponent::UpdateLean()
 {
+	LeanDegrees = 0.f;
 	if (!bPlaceholderLean || !bHasMeshBase) return;
-	const ACharacter* Char = Cast<ACharacter>(GetOwner());
-	if (!Char || !Char->GetMesh() || Char->GetMesh()->IsSimulatingPhysics()) return;
 
 	const float T = Now() - PhaseStart;
 	const float A = GetPhaseAlpha();
@@ -676,8 +742,7 @@ void UMeleeBrainComponent::UpdateLean()
 	default:
 		break;
 	}
-	// Pitch up is positive in Unreal, so leaning forward is a negative pitch (in the capsule's space).
-	Char->GetMesh()->SetRelativeRotation(FRotator(-Lean, 0.f, 0.f).Quaternion() * MeshBaseRotation);
+	LeanDegrees = Lean;
 }
 
 void UMeleeBrainComponent::DrawDebug() const

@@ -148,6 +148,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FMeleeSignal);
  *   - Taking StaggerHealthFraction of its max health in quick succession staggers it in any state except the strike.
  *   - After a stagger it cannot be staggered again for StaggerImmunityTime (no stun-locking).
  *
+ * Every shot that lands also makes it FLINCH: the whole body jolts away from the shot for a moment. That is only
+ * a visual reaction, it never interrupts what the enemy is doing.
+ *
  * Crowds: only MaxSimultaneousAttacks enemies may be winding up or striking at the same moment, and (with Awareness
  * "Spread Out") only enemies holding an attack spot may start. So a pack takes turns and every tell can be read.
  *
@@ -184,6 +187,10 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Melee Brain")
 	FMeleeSignal OnStaggered;
+
+	// It was hit and flinched (every damaging hit). Good for a grunt or a spark.
+	UPROPERTY(BlueprintAssignable, Category = "Melee Brain")
+	FMeleeSignal OnFlinched;
 
 	// Back to normal after an attack or a stagger.
 	UPROPERTY(BlueprintAssignable, Category = "Melee Brain")
@@ -294,6 +301,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Animation", meta = (ClampMin = "0.1"))
 	float RunPlayRate = 1.f;
 
+	// ---- Flinch: a quick jolt away from every shot that lands (it does not interrupt anything) ----
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Flinch")
+	bool bFlinch = true;
+
+	// How far the body is shoved away from the shot, in units.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Flinch", meta = (ClampMin = "0"))
+	float FlinchDistance = 5.f;
+
+	// How far it tips away from the shot, in degrees.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Flinch", meta = (ClampMin = "0", ClampMax = "30"))
+	float FlinchAngle = 5.f;
+
+	// How long one flinch lasts. It snaps out almost at once and settles back over the rest.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Flinch", meta = (ClampMin = "0.05"))
+	float FlinchTime = 0.18f;
+
+	// Headshots flinch this many times harder.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Flinch", meta = (ClampMin = "0"))
+	float HeadshotFlinchScale = 1.7f;
+
 	// ---- Testing aids (turn both off once the real animations are in) ----
 
 	// Leans the whole mesh so the phases can be read without animations: back = wind-up, forward = strike, slumped = recover.
@@ -325,6 +353,9 @@ private:
 	void TakeTheFeet();
 	void StopSliding();
 	void UpdateLean();
+	void StartFlinch(const FVector& WorldDirection, float Strength);
+	void ApplyMeshPose();
+	bool IsFlinching() const;
 	void DrawDebug() const;
 	void PlayAnim(UAnimSequenceBase* Anim, bool bLoop = false, float Rate = 1.f) const;
 	void UpdateLocomotion();
@@ -365,7 +396,13 @@ private:
 	TObjectPtr<UAnimSequenceBase> CurrentLoco;
 
 	FQuat MeshBaseRotation = FQuat::Identity;
+	FVector MeshBaseLocation = FVector::ZeroVector;
 	bool bHasMeshBase = false;
+	bool bMeshPosed = false;                        // the mesh is currently moved off its base pose by us
+	float LeanDegrees = 0.f;                        // placeholder lean, forward is positive
+	FVector FlinchDirLocal = FVector::ZeroVector;   // away from the shot, in the capsule's space
+	float FlinchStart = -1000.f;
+	float FlinchStrength = 0.f;
 	bool bWarnedController = false;
 
 	// Every melee brain in play, to count how many are attacking at once.
