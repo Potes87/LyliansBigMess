@@ -5,6 +5,8 @@
 #include "EnemyAwarenessComponent.h"
 #include "../Stats/CombatHelpers.h"
 #include "AIController.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Animation/AnimSequenceBase.h"
 #include "AnimationRuntime.h"
 #include "NiagaraComponent.h"
@@ -215,13 +217,30 @@ int32 UMeleeBrainComponent::CountOthersAttacking(int32& OutMaxAllowed) const
 	return Count;
 }
 
-void UMeleeBrainComponent::PlayAnim(UAnimSequenceBase* Anim, bool bLoop, float Rate) const
+void UMeleeBrainComponent::PlayAnim(UAnimSequenceBase* Anim, bool bLoop, float Rate, float BlendIn) const
 {
 	if (!Anim) return;
 	const ACharacter* Char = Cast<ACharacter>(GetOwner());
 	USkeletalMeshComponent* Mesh = Char ? Char->GetMesh() : nullptr;
 	if (!Mesh || Mesh->IsSimulatingPhysics()) return;
-	// Straight onto the mesh, from the first frame: the snap into the pose is the point.
+
+	// With an Animation Blueprint on the mesh: play the clip through its Slot node as a one-clip montage, so it
+	// cross-fades from whatever was playing. Starting a new one fades the old one out over the same time.
+	UAnimInstance* Anims = Mesh->GetAnimationMode() == EAnimationMode::AnimationBlueprint ? Mesh->GetAnimInstance() : nullptr;
+	if (Anims && !AnimSlotName.IsNone())
+	{
+		UAnimMontage* Montage = UAnimMontage::CreateSlotAnimationAsDynamicMontage(Anim, AnimSlotName, FMath::Max(0.f, BlendIn), 0.f, 1.f,
+			bLoop ? 1000000 : 1);
+		if (Montage)
+		{
+			// Hold the last frame instead of fading out to the bare stance: the brain decides what plays next, and when.
+			Montage->bEnableAutoBlendOut = false;
+			Anims->Montage_Play(Montage, Rate);
+			return;
+		}
+	}
+
+	// No Animation Blueprint: straight onto the mesh from the first frame (a hard cut).
 	Mesh->PlayAnimation(Anim, bLoop);
 	Mesh->SetPlayRate(Rate);
 }
@@ -236,7 +255,7 @@ void UMeleeBrainComponent::UpdateLocomotion()
 	if (Want && Want != CurrentLoco)
 	{
 		CurrentLoco = Want;
-		PlayAnim(Want, true, Want == RunAnim ? RunPlayRate : 1.f);
+		PlayAnim(Want, true, Want == RunAnim ? RunPlayRate : 1.f, BlendLocomotion);
 	}
 }
 
@@ -434,7 +453,7 @@ void UMeleeBrainComponent::StartAttack(int32 Index)
 	StopSliding();
 	CurrentLoco = nullptr;
 	EnterPhase(EMeleeState::WindUp, Attack.WindUpTime);
-	PlayAnim(Attack.WindUpAnim);
+	PlayAnim(Attack.WindUpAnim, false, 1.f, BlendWindUp);
 	PlaySound(Attack.WindUpSound);
 	OnWindUp.Broadcast(Attack.Name);
 }
@@ -565,7 +584,7 @@ void UMeleeBrainComponent::HandleAggroed(EAggroReason Reason)
 	StopSliding();
 	CurrentLoco = nullptr;
 	EnterPhase(EMeleeState::Alert, AlertTime);
-	PlayAnim(AlertAnim);
+	PlayAnim(AlertAnim, false, 1.f, BlendAlert);
 	PlaySound(AlertSound);
 	OnAlerted.Broadcast();
 }
@@ -642,7 +661,7 @@ void UMeleeBrainComponent::BeginStagger()
 	}
 	if (Choices.Num() > 0)
 	{
-		PlayAnim(Choices[FMath::RandRange(0, Choices.Num() - 1)]);
+		PlayAnim(Choices[FMath::RandRange(0, Choices.Num() - 1)], false, 1.f, BlendStagger);
 	}
 	OnStaggered.Broadcast();
 }

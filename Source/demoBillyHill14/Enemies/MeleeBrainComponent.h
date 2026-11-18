@@ -380,6 +380,30 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Animation", meta = (ClampMin = "0.1"))
 	float RunPlayRate = 1.f;
 
+	// ---- Blending between clips ----
+	// Blending needs the mesh to run an Animation Blueprint whose graph is just one Slot node (named below) wired to
+	// the output. Without one (mesh set to "Use Animation Asset") the clips cut from one to the next, as before.
+
+	// The Slot node in the enemy's Animation Blueprint that the clips are played through.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Animation|Blending")
+	FName AnimSlotName = TEXT("DefaultSlot");
+
+	// Idle <-> run, and from the end of a recovery, stagger or alert back into idle or run.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Animation|Blending", meta = (ClampMin = "0"))
+	float BlendLocomotion = 0.2f;
+
+	// Into a wind-up. Keep it short: the big first pose is the tell.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Animation|Blending", meta = (ClampMin = "0"))
+	float BlendWindUp = 0.06f;
+
+	// Into a stagger.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Animation|Blending", meta = (ClampMin = "0"))
+	float BlendStagger = 0.05f;
+
+	// Into the alert reaction.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Animation|Blending", meta = (ClampMin = "0"))
+	float BlendAlert = 0.1f;
+
 	// ---- Flinch: a quick jolt away from every shot that lands (it does not interrupt anything) ----
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Flinch")
@@ -436,7 +460,8 @@ private:
 	void ApplyMeshPose();
 	bool IsFlinching() const;
 	void DrawDebug() const;
-	void PlayAnim(UAnimSequenceBase* Anim, bool bLoop = false, float Rate = 1.f) const;
+	// BlendIn = seconds to cross-fade from whatever is playing (only with an Animation Blueprint, see Blending above).
+	void PlayAnim(UAnimSequenceBase* Anim, bool bLoop = false, float Rate = 1.f, float BlendIn = 0.f) const;
 	void UpdateLocomotion();
 	void PlaySound(USoundBase* Sound) const;
 	void StartTrails(const FMeleeAttack& Attack);
