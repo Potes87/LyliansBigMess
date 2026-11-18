@@ -1,0 +1,335 @@
+// Fill out your copyright notice in the Description page of Project Settings.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Components/ActorComponent.h"
+#include "Engine/TimerHandle.h"
+#include "MeleeBrainComponent.generated.h"
+
+class UEnemyAwarenessComponent;
+class UAnimMontage;
+class USoundBase;
+class ACharacter;
+class APawn;
+class UDamageType;
+class AController;
+
+/** What a melee enemy is doing right now. */
+UENUM(BlueprintType)
+enum class EMeleeState : uint8
+{
+	Idle,     // not attacking: asleep, chasing, or waiting for its turn (Awareness owns the feet)
+	WindUp,   // the tell: big pose, turning to face the player. The player should dodge now.
+	Strike,   // the attack itself: lunges along its locked direction, the hit shape is live
+	Recover,  // the follow through: stands open, cannot attack or move. The player's turn.
+	Stagger   // knocked out of what it was doing by a headshot or heavy damage
+};
+
+/** One attack a melee enemy can do. All distances in units (100 = 1 metre), all times in seconds. */
+USTRUCT(BlueprintType)
+struct FMeleeAttack
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack")
+	FName Name = TEXT("Slash");
+
+	// The attack can start when the player is between these distances (centre to centre, flat).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Range", meta = (ClampMin = "0"))
+	float MinRange = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Range", meta = (ClampMin = "0"))
+	float MaxRange = 230.f;
+
+	// Chance to use this attack when it is possible (1 = always). A failed roll waits a second before rolling again.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Range", meta = (ClampMin = "0", ClampMax = "1"))
+	float Chance = 1.f;
+
+	// Seconds before this same attack can be used again (0 = only the brain's normal pause between attacks).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Range", meta = (ClampMin = "0"))
+	float Cooldown = 0.f;
+
+	// ---- Timing ----
+
+	// How long the warning pose lasts. This is the player's reaction time.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Timing", meta = (ClampMin = "0.05"))
+	float WindUpTime = 0.5f;
+
+	// It stops turning toward the player this long before the strike. After that, side-stepping makes it miss.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Timing", meta = (ClampMin = "0"))
+	float AimLockTime = 0.12f;
+
+	// How long the strike lasts (the lunge, or the time in the air for a leap).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Timing", meta = (ClampMin = "0.03"))
+	float StrikeTime = 0.15f;
+
+	// The hit shape only turns on this long into the strike (for a leap: so it hits near the landing, not at take-off).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Timing", meta = (ClampMin = "0"))
+	float HitDelay = 0.f;
+
+	// How long it stands open afterwards.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Timing", meta = (ClampMin = "0"))
+	float RecoverTime = 1.0f;
+
+	// ---- Movement ----
+
+	// How far it travels during the strike at most. It always stops just short of where the player was at aim lock.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Movement", meta = (ClampMin = "0"))
+	float LungeDistance = 120.f;
+
+	// Jumps through the air instead of sliding along the ground.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Movement")
+	bool bLeap = false;
+
+	// ---- Hit shape: a fan on the ground in front of the enemy ----
+
+	// How far in front of the enemy the hit reaches.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Hit", meta = (ClampMin = "0"))
+	float Reach = 260.f;
+
+	// Half of the fan's width in degrees. 50 = a 100 degree fan. 180 = all the way round.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Hit", meta = (ClampMin = "1", ClampMax = "180"))
+	float HalfAngle = 50.f;
+
+	// Damage = the enemy's AttackDamage x this.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Hit", meta = (ClampMin = "0"))
+	float DamageMultiplier = 1.f;
+
+	// ---- Looks and sound (all optional) ----
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Animation")
+	TObjectPtr<UAnimMontage> WindUpAnim = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Animation")
+	TObjectPtr<UAnimMontage> StrikeAnim = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Animation")
+	TObjectPtr<UAnimMontage> RecoverAnim = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Sound")
+	TObjectPtr<USoundBase> WindUpSound = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Sound")
+	TObjectPtr<USoundBase> StrikeSound = nullptr;
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FMeleeAttackSignal, FName, AttackName);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FMeleeHitSignal, float, Damage);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FMeleeSignal);
+
+/**
+ * Attack brain for a melee enemy. Add it to the enemy Blueprint next to the Awareness component and give the enemy
+ * a plain AIController (not AIC_Enemy: that one starts the old instant attack).
+ *
+ * Awareness still decides when the enemy is awake and walks it to the player (leave its "Drive Movement" ON).
+ * This component takes over once the player is in range of one of its Attacks:
+ *
+ *   WIND-UP  -> the tell. It stops, snaps to a big pose and keeps turning to face the player. Shortly before the
+ *               strike (AimLockTime) it stops turning: from then on the strike goes where it is facing.
+ *   STRIKE   -> lunges (or leaps) along that locked direction. The hit is a fan in front of the enemy, checked
+ *               while it moves. The player takes damage once if they are inside it. Side-step or dash = miss.
+ *   RECOVER  -> stands open for RecoverTime. No moving, no attacking. This is the player's window.
+ *
+ * Fighting back:
+ *   - A headshot during the wind-up staggers it and cancels the attack.
+ *   - Taking StaggerHealthFraction of its max health in quick succession staggers it in any state except the strike.
+ *   - After a stagger it cannot be staggered again for StaggerImmunityTime (no stun-locking).
+ *
+ * Crowds: only MaxSimultaneousAttacks enemies may be winding up or striking at the same moment, and (with Awareness
+ * "Spread Out") only enemies holding an attack spot may start. So a pack takes turns and every tell can be read.
+ *
+ * It sets the Blueprint bool "bIsAttacking" on the owner while it is busy, so Awareness leaves the feet alone.
+ * Damage is the owner's Blueprint "AttackDamage" (already scaled by the enemy's level) x the attack's multiplier.
+ */
+UCLASS(ClassGroup = (Enemies), meta = (BlueprintSpawnableComponent))
+class DEMOBILLYHILL14_API UMeleeBrainComponent : public UActorComponent
+{
+	GENERATED_BODY()
+
+public:
+	UMeleeBrainComponent();
+
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+
+	// ---- Signals (for glow, sounds, FX, Blueprint logic) ----
+
+	UPROPERTY(BlueprintAssignable, Category = "Melee Brain")
+	FMeleeAttackSignal OnWindUp;
+
+	UPROPERTY(BlueprintAssignable, Category = "Melee Brain")
+	FMeleeAttackSignal OnStrike;
+
+	UPROPERTY(BlueprintAssignable, Category = "Melee Brain")
+	FMeleeAttackSignal OnRecover;
+
+	// The strike connected with the player.
+	UPROPERTY(BlueprintAssignable, Category = "Melee Brain")
+	FMeleeHitSignal OnHitPlayer;
+
+	UPROPERTY(BlueprintAssignable, Category = "Melee Brain")
+	FMeleeSignal OnStaggered;
+
+	// Back to normal after an attack or a stagger.
+	UPROPERTY(BlueprintAssignable, Category = "Melee Brain")
+	FMeleeSignal OnAttackEnded;
+
+	UFUNCTION(BlueprintPure, Category = "Melee Brain")
+	EMeleeState GetState() const { return State; }
+
+	UFUNCTION(BlueprintPure, Category = "Melee Brain")
+	bool IsWindingUp() const { return State == EMeleeState::WindUp; }
+
+	UFUNCTION(BlueprintPure, Category = "Melee Brain")
+	bool IsStriking() const { return State == EMeleeState::Strike; }
+
+	UFUNCTION(BlueprintPure, Category = "Melee Brain")
+	bool IsRecovering() const { return State == EMeleeState::Recover; }
+
+	UFUNCTION(BlueprintPure, Category = "Melee Brain")
+	bool IsStaggered() const { return State == EMeleeState::Stagger; }
+
+	// How far through the current phase it is, 0 to 1 (0 while idle).
+	UFUNCTION(BlueprintPure, Category = "Melee Brain")
+	float GetPhaseAlpha() const;
+
+	// Name of the attack in progress (None while idle).
+	UFUNCTION(BlueprintPure, Category = "Melee Brain")
+	FName GetCurrentAttackName() const;
+
+	// Knock it out of whatever it is doing right now (ignores immunity).
+	UFUNCTION(BlueprintCallable, Category = "Melee Brain")
+	void ForceStagger();
+
+	// ---- Attacks ----
+
+	// Every attack this enemy knows. Each time it may attack, it uses the first one in the list that is in range and ready.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain")
+	TArray<FMeleeAttack> Attacks;
+
+	// Pause after an attack before the next one may start: a random time between these.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain", meta = (ClampMin = "0"))
+	float AttackPauseMin = 0.3f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain", meta = (ClampMin = "0"))
+	float AttackPauseMax = 0.8f;
+
+	// How fast it turns to face the player during the wind-up, in degrees per second.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain", meta = (ClampMin = "0"))
+	float TurnSpeed = 720.f;
+
+	// It will not start an attack, and its hits miss, when the player is more than this far above or below it.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain", meta = (ClampMin = "0"))
+	float HeightTolerance = 150.f;
+
+	// ---- Crowds ----
+
+	// How many melee enemies may be winding up or striking at the same moment. (The largest value in play wins.)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Crowd", meta = (ClampMin = "1"))
+	int32 MaxSimultaneousAttacks = 2;
+
+	// Only attack while holding one of Awareness' attack spots (when Awareness "Spread Out" is on).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Crowd")
+	bool bNeedsAttackSpot = true;
+
+	// ---- Stagger ----
+
+	// A headshot during the wind-up cancels the attack.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Stagger")
+	bool bHeadshotStaggersWindUp = true;
+
+	// Taking this much of its max health in quick succession staggers it. 0.3 = 30%. 0 = off.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Stagger", meta = (ClampMin = "0", ClampMax = "1"))
+	float StaggerHealthFraction = 0.3f;
+
+	// The damage count starts over after this long without being hit.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Stagger", meta = (ClampMin = "0"))
+	float StaggerResetTime = 2.f;
+
+	// How long a stagger lasts.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Stagger", meta = (ClampMin = "0.05"))
+	float StaggerTime = 0.9f;
+
+	// After a stagger ends it cannot be staggered again for this long.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Stagger", meta = (ClampMin = "0"))
+	float StaggerImmunityTime = 2.5f;
+
+	// Heavy damage can also interrupt the strike itself. Off = once it swings, it swings.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Stagger")
+	bool bStaggerDuringStrike = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Stagger")
+	TObjectPtr<UAnimMontage> StaggerAnim = nullptr;
+
+	// ---- Testing aids (turn both off once the real animations are in) ----
+
+	// Leans the whole mesh so the phases can be read without animations: back = wind-up, forward = strike, slumped = recover.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Testing")
+	bool bPlaceholderLean = true;
+
+	// Draws the hit fan on the ground: yellow = winding up (still turning), orange = aim locked, red = hit is live,
+	// green ball = recovering (punish now), white ball = staggered.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Testing")
+	bool bDebugDraw = true;
+
+	// Seconds between decisions while not attacking.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain", meta = (ClampMin = "0.03"))
+	float ThinkInterval = 0.1f;
+
+protected:
+	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+private:
+	void Think();
+	void StartAttack(int32 Index);
+	void BeginStrike();
+	void BeginRecover();
+	void BeginStagger();
+	void EndAttack();
+	void EnterPhase(EMeleeState NewState, float Length);
+	void TryHit(const FMeleeAttack& Attack);
+	void TakeTheFeet();
+	void StopSliding();
+	void UpdateLean();
+	void DrawDebug() const;
+	void PlayAnim(UAnimMontage* Montage) const;
+	void PlaySound(USoundBase* Sound) const;
+	void SetOwnerAttacking(bool bValue) const;
+	float OwnerMaxHealth();
+	int32 CountOthersAttacking(int32& OutMaxAllowed) const;
+	const FMeleeAttack* CurrentAttack() const;
+	bool IsAlive() const;
+	float Now() const;
+
+	UFUNCTION()
+	void HandleOwnerDamaged(AActor* DamagedActor, float Damage, const UDamageType* DamageType, AController* InstigatedBy, AActor* DamageCauser);
+
+	UPROPERTY()
+	TObjectPtr<UEnemyAwarenessComponent> Awareness;
+
+	FTimerHandle ThinkTimer;
+	EMeleeState State = EMeleeState::Idle;
+	int32 Current = INDEX_NONE;       // index into Attacks of the attack in progress
+	float PhaseStart = 0.f;
+	float PhaseLength = 0.f;
+	float NextAttackTime = 0.f;
+	TArray<float> ReadyTime;          // per attack: when it may be used again
+
+	FVector LockedDir = FVector::ForwardVector;   // flat direction the strike travels and hits along
+	FVector LockedTarget = FVector::ZeroVector;   // where the player was at aim lock
+	float LungeSpeed = 0.f;
+	bool bHitDone = false;
+
+	float StaggerDamage = 0.f;        // damage taken recently, counted toward a stagger
+	float LastDamageTime = -1000.f;
+	float StaggerImmuneUntil = 0.f;
+	float CachedMaxHealth = 0.f;
+
+	FQuat MeshBaseRotation = FQuat::Identity;
+	bool bHasMeshBase = false;
+	bool bWarnedController = false;
+
+	// Every melee brain in play, to count how many are attacking at once.
+	static TArray<TWeakObjectPtr<UMeleeBrainComponent>> AllBrains;
+};
