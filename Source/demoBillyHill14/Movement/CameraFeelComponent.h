@@ -10,6 +10,9 @@ class ACharacter;
 class UCameraComponent;
 class USceneComponent;
 class FBoolProperty;
+class UDamageType;
+class AController;
+class SHitEdgeFlash;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FFootstepSignature, bool, bLeftFoot);
 
@@ -238,6 +241,86 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Camera Feel")
 	void KickRecoil(float Strength = 1.f);
 
+	// ---- Getting hit (automatic: every time the player takes damage) ----
+
+	// Jolt the camera away from whatever hit the player.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit")
+	bool bHitKick = true;
+
+	// Camera jolt at full strength, in degrees: tilt sideways, snap the head back (or forward if hit from behind),
+	// and turn away from the side the hit came from.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit", meta = (ClampMin = "0"))
+	float HitRoll = 4.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit", meta = (ClampMin = "0"))
+	float HitPitch = 3.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit", meta = (ClampMin = "0"))
+	float HitYaw = 1.5f;
+
+	// How fast the jolt snaps back, and how bouncy (lower damping = more wobble).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit", meta = (ClampMin = "1"))
+	float HitStiffness = 170.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit", meta = (ClampMin = "0.05", ClampMax = "2"))
+	float HitDamping = 0.5f;
+
+	// A hit that takes this share of max health counts as full strength (1). Smaller hits scale down, bigger ones up.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit", meta = (ClampMin = "0.01", ClampMax = "1"))
+	float HitFullStrengthHealth = 0.12f;
+
+	// Every hit jolts at least this hard, and never harder than the max.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit", meta = (ClampMin = "0"))
+	float HitMinStrength = 0.3f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit", meta = (ClampMin = "0"))
+	float HitMaxStrength = 1.6f;
+
+	// Heavy hits also shove the player away: speed in units per second at full strength. 0 = never shove.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit", meta = (ClampMin = "0"))
+	float HitShove = 380.f;
+
+	// A little upward pop with the shove, so the ground does not swallow it at once.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit", meta = (ClampMin = "0"))
+	float HitShoveLift = 70.f;
+
+	// Only hits at least this strong shove (a light slash should not move the player, a leap should).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit", meta = (ClampMin = "0"))
+	float HitShoveMinStrength = 0.45f;
+
+	// ---- Hit flash: the edge of the screen on the side the hit came from flashes ----
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit Flash")
+	bool bHitFlash = true;
+
+	// Dusk Hollow rose (health / danger).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit Flash")
+	FLinearColor HitFlashColor = FLinearColor(FColor(229, 142, 158));
+
+	// How strong the flash is at its peak on the side that was hit (0 to 1).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit Flash", meta = (ClampMin = "0", ClampMax = "1"))
+	float HitFlashOpacity = 0.6f;
+
+	// The other three edges flash this much of that, so any hit is noticed even when it comes from straight ahead.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit Flash", meta = (ClampMin = "0", ClampMax = "1"))
+	float HitFlashAllEdges = 0.25f;
+
+	// How far the flash reaches in from the edge, as a share of the screen's shorter side.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit Flash", meta = (ClampMin = "0.02", ClampMax = "0.5"))
+	float HitFlashDepth = 0.2f;
+
+	// Seconds for the flash to fade out.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit Flash", meta = (ClampMin = "0.05"))
+	float HitFlashTime = 0.45f;
+
+	// The flash is drawn in this many steps from the edge inward (stepped, to sit with the pixel look).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Feel|Hit Flash", meta = (ClampMin = "2", ClampMax = "32"))
+	int32 HitFlashBands = 10;
+
+	// Jolt the camera by hand. AwayDirection = the way the hit pushes the player (world space). Damage does this automatically.
+	UFUNCTION(BlueprintCallable, Category = "Camera Feel")
+	void KickHit(FVector AwayDirection, float Strength = 1.f, bool bShove = true);
+
 	// ---- Output (read these in the arms animation Blueprint) ----
 
 	// Arms offset in camera space: X forward, Y right, Z up (cm).
@@ -265,6 +348,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
 	struct FSpring
@@ -279,6 +363,11 @@ private:
 
 	UFUNCTION()
 	void HandleDashed(FVector Direction);
+
+	UFUNCTION()
+	void HandleDamaged(AActor* DamagedActor, float Damage, const UDamageType* DamageType, AController* InstigatedBy, AActor* DamageCauser);
+
+	float OwnerMaxHealth() const;
 
 	bool ReadBool(const FBoolProperty* Prop) const;
 
@@ -316,6 +405,17 @@ private:
 	FSpring RecoilUp;
 	FSpring RecoilSide;
 	FSpring ArmsRecoil;
+
+	FSpring HitSpring;
+
+	// Hit flash overlay (made the first time the player is hit).
+	TSharedPtr<SHitEdgeFlash> FlashWidget;
+	float FlashEdges[4] = { 0.f, 0.f, 0.f, 0.f };   // left, right, top, bottom at the moment of the hit
+	float FlashAlpha = 0.f;                        // 1 at the hit, fades to 0
+	void StartFlash(float Strength);
+	void UpdateFlash(float Dt);
+	float HitSide = 0.f;      // +1 = pushed to the player's right
+	float HitForward = 0.f;   // +1 = pushed forward (hit from behind)
 
 	TWeakObjectPtr<USceneComponent> Arms;
 	FVector ArmsBaseLocation = FVector::ZeroVector;

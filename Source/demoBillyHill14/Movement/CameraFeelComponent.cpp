@@ -4,6 +4,9 @@
 
 #include "Camera/CameraComponent.h"
 #include "DashComponent.h"
+#include "SHitEdgeFlash.h"
+#include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
@@ -89,6 +92,7 @@ void UCameraFeelComponent::BeginPlay()
 	{
 		DashComp->OnDashed.AddDynamic(this, &UCameraFeelComponent::HandleDashed);
 	}
+	Owner->OnTakeAnyDamage.AddUniqueDynamic(this, &UCameraFeelComponent::HandleDamaged);
 }
 
 bool UCameraFeelComponent::ReadBool(const FBoolProperty* Prop) const
@@ -122,6 +126,112 @@ void UCameraFeelComponent::KickRecoil(float Strength)
 	RecoilUp.V += S * W;                            // unitless 0..~1, scaled by RecoilPitch in tick
 	RecoilSide.V += S * W * FMath::FRandRange(-1.f, 1.f);
 	ArmsRecoil.V += S * W;
+}
+
+void UCameraFeelComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (FlashWidget.IsValid())
+	{
+		if (GEngine && GEngine->GameViewport)
+		{
+			GEngine->GameViewport->RemoveViewportWidgetContent(FlashWidget.ToSharedRef());
+		}
+		FlashWidget.Reset();
+	}
+	Super::EndPlay(EndPlayReason);
+}
+
+void UCameraFeelComponent::StartFlash(float Strength)
+{
+	const ACharacter* Ch = Character.Get();
+	if (!bHitFlash || !Ch || !Ch->IsLocallyControlled() || !GEngine || !GEngine->GameViewport) return;
+	if (!FlashWidget.IsValid())
+	{
+		FlashWidget = SNew(SHitEdgeFlash);
+		GEngine->GameViewport->AddViewportWidgetContent(FlashWidget.ToSharedRef(), 50);
+	}
+	// The hit came from the side OPPOSITE to the way it pushes the player. Front = top of the screen, behind = bottom.
+	const float Peak = FMath::Clamp(Strength, 0.5f, 1.f);
+	const float Dir[4] = { FMath::Max(0.f, HitSide), FMath::Max(0.f, -HitSide), FMath::Max(0.f, -HitForward), FMath::Max(0.f, HitForward) };
+	for (int32 i = 0; i < 4; ++i)
+	{
+		// A fresh hit never dims an edge that is still lit from the last one.
+		FlashEdges[i] = FMath::Max(FlashEdges[i] * FlashAlpha, Peak * FMath::Lerp(HitFlashAllEdges, 1.f, Dir[i]));
+	}
+	FlashAlpha = 1.f;
+}
+
+void UCameraFeelComponent::UpdateFlash(float Dt)
+{
+	if (!FlashWidget.IsValid()) return;
+	FlashAlpha = FMath::Max(0.f, FlashAlpha - Dt / FMath::Max(HitFlashTime, 0.05f));
+	const float Fade = FlashAlpha * FlashAlpha;   // quick at first, then a soft tail
+	FLinearColor Col = HitFlashColor;
+	Col.A = HitFlashOpacity;
+	FlashWidget->Color = Col;
+	FlashWidget->Depth = HitFlashDepth;
+	FlashWidget->Bands = HitFlashBands;
+	for (int32 i = 0; i < 4; ++i)
+	{
+		FlashWidget->Edge[i] = bHitFlash ? FlashEdges[i] * Fade : 0.f;
+	}
+}
+
+void UCameraFeelComponent::KickHit(FVector AwayDirection, float Strength, bool bShove)
+{
+	ACharacter* Ch = Character.Get();
+	if (!Ch || Strength <= 0.f) return;
+	const AController* PC = Ch->GetController();
+	const FRotator Yaw(0.f, PC ? PC->GetControlRotation().Yaw : Ch->GetActorRotation().Yaw, 0.f);
+	FVector Dir = AwayDirection.GetSafeNormal2D();
+	if (Dir.IsNearlyZero()) Dir = -FRotationMatrix(Yaw).GetUnitAxis(EAxis::X);   // unknown direction: treat it as a hit from the front
+	HitSide = FVector::DotProduct(Dir, FRotationMatrix(Yaw).GetUnitAxis(EAxis::Y));
+	HitForward = FVector::DotProduct(Dir, FRotationMatrix(Yaw).GetUnitAxis(EAxis::X));
+	HitSpring.V += Strength * FMath::Sqrt(HitStiffness) * 1.6f;
+	StartFlash(Strength);
+
+	if (bShove && HitShove > 0.f && Strength >= HitShoveMinStrength)
+	{
+		// Added to whatever the player is already doing, so it never cancels a dash or a jump.
+		Ch->LaunchCharacter(Dir * HitShove * Strength + FVector(0.f, 0.f, HitShoveLift * Strength), false, false);
+	}
+}
+
+float UCameraFeelComponent::OwnerMaxHealth() const
+{
+	// Find the Blueprint health component (BPC_Health) by its variables, so C++ doesn't need to know the Blueprint class.
+	if (const AActor* Owner = GetOwner())
+	{
+		for (const UActorComponent* Comp : Owner->GetComponents())
+		{
+			if (!Comp) continue;
+			static const TCHAR* const Names[] = { TEXT("MaxHealth"), TEXT("BaseMaxHealth") };
+			for (const TCHAR* Name : Names)
+			{
+				if (const FNumericProperty* Prop = FindFProperty<FNumericProperty>(Comp->GetClass(), Name))
+				{
+					const void* Value = Prop->ContainerPtrToValuePtr<void>(Comp);
+					const float Health = Prop->IsFloatingPoint() ? (float)Prop->GetFloatingPointPropertyValue(Value) : (float)Prop->GetSignedIntPropertyValue(Value);
+					if (Health > 0.f) return Health;
+				}
+			}
+		}
+	}
+	return 100.f;
+}
+
+void UCameraFeelComponent::HandleDamaged(AActor* DamagedActor, float Damage, const UDamageType* DamageType,
+                                         AController* InstigatedBy, AActor* DamageCauser)
+{
+	if (!bHitKick || Damage <= 0.f) return;
+	const AActor* Owner = GetOwner();
+	if (!Owner) return;
+	// Where did it come from? The thing that hit us, or failing that whoever is behind it.
+	const AActor* Source = DamageCauser ? DamageCauser : (InstigatedBy ? InstigatedBy->GetPawn() : nullptr);
+	if (!Source || Source == Owner) return;   // damage with no attacker (burning, falling): no jolt, no shove
+	const FVector Away = Owner->GetActorLocation() - Source->GetActorLocation();
+	const float Strength = FMath::Clamp(Damage / FMath::Max(OwnerMaxHealth() * HitFullStrengthHealth, 1.f), HitMinStrength, HitMaxStrength);
+	KickHit(Away, Strength, true);
 }
 
 void UCameraFeelComponent::HandleLanded(const FHitResult& Hit)
@@ -229,6 +339,8 @@ void UCameraFeelComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
 	RecoilUp.Step(0.f, RecoilStiffness, RecoilDamping, Dt);
 	RecoilSide.Step(0.f, RecoilStiffness, RecoilDamping, Dt);
 	ArmsRecoil.Step(0.f, RecoilStiffness * 0.8f, RecoilDamping, Dt);
+	HitSpring.Step(0.f, HitStiffness, HitDamping, Dt);
+	UpdateFlash(Dt);
 
 	const float Breath = (1.f - MoveAlpha) * BreathHeight * 0.5f * FMath::Sin(2.f * PI * BreathRate * Time);
 
@@ -243,6 +355,11 @@ void UCameraFeelComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
 	// Recoil is gameplay feedback, not bob, so the Intensity setting doesn't remove it.
 	CamRot.Pitch += RecoilUp.X * RecoilPitch;
 	CamRot.Yaw += RecoilSide.X * RecoilYaw;
+	// Getting hit: the head is knocked the way the hit pushes. From the front it snaps back (looks up a little),
+	// from the side it tips and turns that way. Also gameplay feedback, so Intensity doesn't remove it.
+	CamRot.Pitch -= HitSpring.X * HitPitch * HitForward;
+	CamRot.Roll += HitSpring.X * HitRoll * HitSide;
+	CamRot.Yaw += HitSpring.X * HitYaw * HitSide;
 	CameraOffset = CamLoc;
 	CameraRotation = CamRot;
 

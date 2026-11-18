@@ -6,6 +6,12 @@
 #include "../Stats/CombatHelpers.h"
 #include "AIController.h"
 #include "Animation/AnimSequenceBase.h"
+#include "AnimationRuntime.h"
+#include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "Engine/SkeletalMesh.h"
+#include "CollisionQueryParams.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
@@ -83,6 +89,10 @@ void UMeleeBrainComponent::BeginPlay()
 
 	// Unique: BeginPlay can run twice on an actor when World Partition streams its cell in.
 	Owner->OnTakeAnyDamage.AddUniqueDynamic(this, &UMeleeBrainComponent::HandleOwnerDamaged);
+	if (Awareness)
+	{
+		Awareness->OnAggroed.AddUniqueDynamic(this, &UMeleeBrainComponent::HandleAggroed);
+	}
 
 	if (ACharacter* Char = Cast<ACharacter>(Owner))
 	{
@@ -151,7 +161,7 @@ float UMeleeBrainComponent::GetPhaseAlpha() const
 FName UMeleeBrainComponent::GetCurrentAttackName() const
 {
 	const FMeleeAttack* Attack = CurrentAttack();
-	return (Attack && State != EMeleeState::Idle && State != EMeleeState::Stagger) ? Attack->Name : NAME_None;
+	return (Attack && State != EMeleeState::Idle && State != EMeleeState::Stagger && State != EMeleeState::Alert) ? Attack->Name : NAME_None;
 }
 
 void UMeleeBrainComponent::SetOwnerAttacking(bool bValue) const
@@ -235,6 +245,71 @@ void UMeleeBrainComponent::PlaySound(USoundBase* Sound) const
 	if (Sound && GetOwner())
 	{
 		UGameplayStatics::PlaySoundAtLocation(this, Sound, GetOwner()->GetActorLocation());
+	}
+}
+
+void UMeleeBrainComponent::StartTrails(const FMeleeAttack& Attack)
+{
+	StopTrails();
+	const ACharacter* Char = Cast<ACharacter>(GetOwner());
+	USkeletalMeshComponent* Mesh = Char ? Char->GetMesh() : nullptr;
+	if (!Attack.StrikeTrailFX || !Mesh || !Mesh->GetSkeletalMeshAsset()) return;
+	const FReferenceSkeleton& Ref = Mesh->GetSkeletalMeshAsset()->GetRefSkeleton();
+
+	auto Spawn = [&](FName Bone, const FVector& Point)
+	{
+		const int32 Index = Bone.IsNone() ? INDEX_NONE : Ref.FindBoneIndex(Bone);
+		if (Index == INDEX_NONE) return;
+		// TrailPoint is given in the resting stance. Work out where that is relative to the bone, so the trail
+		// stays on that spot of the blade however the arm moves.
+		const FVector Offset = Point.IsNearlyZero() ? FVector::ZeroVector
+			: FAnimationRuntime::GetComponentSpaceTransformRefPose(Ref, Index).InverseTransformPosition(Point);
+		if (UNiagaraComponent* Trail = UNiagaraFunctionLibrary::SpawnSystemAttached(Attack.StrikeTrailFX, Mesh, Bone, Offset,
+			FRotator::ZeroRotator, EAttachLocation::KeepRelativeOffset, true))
+		{
+			ActiveTrails.Add(Trail);
+		}
+	};
+	Spawn(Attack.TrailBone, Attack.TrailPoint);
+	Spawn(Attack.TrailBone2, Attack.TrailPoint2);
+}
+
+void UMeleeBrainComponent::StopTrails()
+{
+	for (UNiagaraComponent* Trail : ActiveTrails)
+	{
+		if (IsValid(Trail))
+		{
+			Trail->Deactivate(); // stops making new particles; the ones already out fade by themselves, then it removes itself
+		}
+	}
+	ActiveTrails.Reset();
+}
+
+void UMeleeBrainComponent::SpawnImpact(const FMeleeAttack& Attack)
+{
+	const ACharacter* Char = Cast<ACharacter>(GetOwner());
+	UWorld* World = GetWorld();
+	if (!Attack.ImpactFX || !Char || !World) return;
+
+	// On the ground, a little in front of it along the strike. Falls back to foot height if nothing is under it.
+	const float HalfHeight = Char->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const FVector Above = Char->GetActorLocation() + LockedDir * Attack.ImpactForward;
+	FVector Where = Above - FVector(0.f, 0.f, HalfHeight);
+	FHitResult Hit;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(MeleeImpactFX), false, Char);
+	FCollisionObjectQueryParams Objects;
+	Objects.AddObjectTypesToQuery(ECC_WorldStatic);
+	Objects.AddObjectTypesToQuery(ECC_WorldDynamic);
+	if (World->LineTraceSingleByObjectType(Hit, Above, Above - FVector(0.f, 0.f, HalfHeight + 150.f), Objects, Params))
+	{
+		Where = Hit.ImpactPoint;
+	}
+	// These burst effects fire along their own +X, so point that up out of the ground.
+	const FRotator Up = FRotationMatrix::MakeFromX(FVector::UpVector).Rotator();
+	if (UNiagaraComponent* Burst = UNiagaraFunctionLibrary::SpawnSystemAtLocation(World, Attack.ImpactFX, Where, Up))
+	{
+		Burst->SetVariableFloat(TEXT("Scale"), Attack.ImpactScale);
 	}
 }
 
@@ -399,6 +474,7 @@ void UMeleeBrainComponent::BeginStrike()
 	EnterPhase(EMeleeState::Strike, Time);
 	PlayAnim(Attack->StrikeAnim);
 	PlaySound(Attack->StrikeSound);
+	StartTrails(*Attack);
 	OnStrike.Broadcast(Attack->Name);
 }
 
@@ -444,6 +520,8 @@ void UMeleeBrainComponent::BeginRecover()
 		return;
 	}
 	StopSliding();
+	StopTrails();
+	SpawnImpact(*Attack);
 	EnterPhase(EMeleeState::Recover, Attack->RecoverTime);
 	PlayAnim(Attack->RecoverAnim);
 	OnRecover.Broadcast(Attack->Name);
@@ -456,6 +534,7 @@ void UMeleeBrainComponent::EndAttack()
 		ReadyTime[Current] = Now() + Attacks[Current].Cooldown;
 	}
 	const bool bWasBusy = State != EMeleeState::Idle;
+	StopTrails();
 	State = EMeleeState::Idle;
 	Current = INDEX_NONE;
 	LungeSpeed = 0.f;
@@ -471,6 +550,23 @@ void UMeleeBrainComponent::EndAttack()
 	{
 		OnAttackEnded.Broadcast();
 	}
+}
+
+// ------------------------------------------------------------------ alert
+
+void UMeleeBrainComponent::HandleAggroed(EAggroReason Reason)
+{
+	// The moment it notices the player: stop, snap into the alert pose facing them, then come running.
+	if (!bAlertReaction || State != EMeleeState::Idle || !IsAlive()) return;
+	if (Reason == EAggroReason::Damage && !bAlertWhenShot) return;
+	if (AlertChance < 1.f && FMath::FRand() > AlertChance) return;   // only some of them react; the rest just charge
+	TakeTheFeet();
+	StopSliding();
+	CurrentLoco = nullptr;
+	EnterPhase(EMeleeState::Alert, AlertTime);
+	PlayAnim(AlertAnim);
+	PlaySound(AlertSound);
+	OnAlerted.Broadcast();
 }
 
 // ------------------------------------------------------------------ stagger
@@ -528,6 +624,7 @@ void UMeleeBrainComponent::ForceStagger()
 void UMeleeBrainComponent::BeginStagger()
 {
 	// The attack it was doing is cancelled; it may try the same one again right after.
+	StopTrails();
 	TakeTheFeet();
 	StopSliding();
 	EnterPhase(EMeleeState::Stagger, StaggerTime);
@@ -548,6 +645,7 @@ void UMeleeBrainComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
 	if (!IsAlive())
 	{
 		// Died (maybe mid-attack): let go without touching the ragdoll.
+		StopTrails();
 		State = EMeleeState::Idle;
 		Current = INDEX_NONE;
 		LungeSpeed = 0.f;
@@ -648,6 +746,28 @@ void UMeleeBrainComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
 		if (T >= PhaseLength)
 		{
 			EndAttack();
+			return;
+		}
+		break;
+	case EMeleeState::Alert:
+		// Turn to face the player while it reacts.
+		if (Char)
+		{
+			if (const APawn* Player = UGameplayStatics::GetPlayerPawn(this, 0))
+			{
+				const FVector To = (Player->GetActorLocation() - Char->GetActorLocation()).GetSafeNormal2D();
+				if (!To.IsNearlyZero())
+				{
+					const FRotator Want(0.f, To.Rotation().Yaw, 0.f);
+					const FRotator Have(0.f, Char->GetActorRotation().Yaw, 0.f);
+					Char->SetActorRotation(FMath::RInterpConstantTo(Have, Want, DeltaTime, TurnSpeed));
+				}
+			}
+		}
+		if (T >= PhaseLength)
+		{
+			EndAttack();
+			NextAttackTime = Now(); // the reaction was the pause: it may attack as soon as it is in range
 			return;
 		}
 		break;
@@ -764,6 +884,11 @@ void UMeleeBrainComponent::DrawDebug() const
 	if (State == EMeleeState::Stagger)
 	{
 		DrawDebugSphere(World, Head, 18.f, 8, FColor::White);
+		return;
+	}
+	if (State == EMeleeState::Alert)
+	{
+		DrawDebugSphere(World, Head, 18.f, 8, FColor::Magenta);
 		return;
 	}
 

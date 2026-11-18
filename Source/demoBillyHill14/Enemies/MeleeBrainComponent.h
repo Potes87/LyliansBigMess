@@ -5,10 +5,13 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Engine/TimerHandle.h"
+#include "EnemyAwarenessComponent.h"
 #include "MeleeBrainComponent.generated.h"
 
 class UEnemyAwarenessComponent;
 class UAnimSequenceBase;
+class UNiagaraSystem;
+class UNiagaraComponent;
 class USoundBase;
 class ACharacter;
 class APawn;
@@ -23,7 +26,8 @@ enum class EMeleeState : uint8
 	WindUp,   // the tell: big pose, turning to face the player. The player should dodge now.
 	Strike,   // the attack itself: lunges along its locked direction, the hit shape is live
 	Recover,  // the follow through: stands open, cannot attack or move. The player's turn.
-	Stagger   // knocked out of what it was doing by a headshot or heavy damage
+	Stagger,  // knocked out of what it was doing by a headshot or heavy damage
+	Alert     // it has just noticed the player: a short startled reaction before it comes running
 };
 
 /** One attack a melee enemy can do. All distances in units (100 = 1 metre), all times in seconds. */
@@ -119,6 +123,40 @@ struct FMeleeAttack
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Animation")
 	TObjectPtr<UAnimSequenceBase> RecoverAnim = nullptr;
 
+	// ---- Effects (all optional) ----
+
+	// Plays on the weapon for the length of the strike (a trail behind the blade).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Effects")
+	TObjectPtr<UNiagaraSystem> StrikeTrailFX = nullptr;
+
+	// The trail rides this bone (the hand that holds the blade)...
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Effects")
+	FName TrailBone = TEXT("hand_r");
+
+	// ...at this point on the model, given where that point is while the enemy stands in its resting stance
+	// (mesh space, units: X = its left, Y = forward, Z = up from the feet). Zero = right at the bone.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Effects")
+	FVector TrailPoint = FVector::ZeroVector;
+
+	// A second trail for attacks that use both blades. Leave the bone as None for one trail only.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Effects")
+	FName TrailBone2 = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Effects")
+	FVector TrailPoint2 = FVector::ZeroVector;
+
+	// Bursts on the ground where the strike ends (the blade biting the floor, the leap landing).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Effects")
+	TObjectPtr<UNiagaraSystem> ImpactFX = nullptr;
+
+	// How far in front of the enemy the burst appears.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Effects", meta = (ClampMin = "0"))
+	float ImpactForward = 110.f;
+
+	// Passed to the effect as its "Scale" setting, if it has one.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Effects", meta = (ClampMin = "0"))
+	float ImpactScale = 1.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Sound")
 	TObjectPtr<USoundBase> WindUpSound = nullptr;
 
@@ -188,6 +226,10 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Melee Brain")
 	FMeleeSignal OnStaggered;
 
+	// It has just noticed the player and started its alert reaction. Good for the alerted sound.
+	UPROPERTY(BlueprintAssignable, Category = "Melee Brain")
+	FMeleeSignal OnAlerted;
+
 	// It was hit and flinched (every damaging hit). Good for a grunt or a spark.
 	UPROPERTY(BlueprintAssignable, Category = "Melee Brain")
 	FMeleeSignal OnFlinched;
@@ -210,6 +252,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Melee Brain")
 	bool IsStaggered() const { return State == EMeleeState::Stagger; }
+
+	UFUNCTION(BlueprintPure, Category = "Melee Brain")
+	bool IsAlerting() const { return State == EMeleeState::Alert; }
 
 	// How far through the current phase it is, 0 to 1 (0 while idle).
 	UFUNCTION(BlueprintPure, Category = "Melee Brain")
@@ -282,6 +327,31 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Stagger")
 	TObjectPtr<UAnimSequenceBase> StaggerAnim = nullptr;
+
+	// ---- Alert: the moment it notices the player ----
+
+	// Stop for a moment and react when it first notices the player, before it comes running.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Alert")
+	bool bAlertReaction = true;
+
+	// How long the reaction lasts. It turns to face the player during it.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Alert", meta = (ClampMin = "0.05"))
+	float AlertTime = 0.8f;
+
+	// Chance that it reacts at all when it notices the player (1 = always, 0.5 = half the time). The rest just charge,
+	// so a group does not all do the same thing at once.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Alert", meta = (ClampMin = "0", ClampMax = "1"))
+	float AlertChance = 0.5f;
+
+	// Also react when it is woken by being shot. Off = a shot enemy skips the reaction and just comes for the player.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Alert")
+	bool bAlertWhenShot = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Alert")
+	TObjectPtr<UAnimSequenceBase> AlertAnim = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Alert")
+	TObjectPtr<USoundBase> AlertSound = nullptr;
 
 	// ---- Standing and running (played by the brain whenever it is not attacking or staggered) ----
 
@@ -360,12 +430,18 @@ private:
 	void PlayAnim(UAnimSequenceBase* Anim, bool bLoop = false, float Rate = 1.f) const;
 	void UpdateLocomotion();
 	void PlaySound(USoundBase* Sound) const;
+	void StartTrails(const FMeleeAttack& Attack);
+	void StopTrails();
+	void SpawnImpact(const FMeleeAttack& Attack);
 	void SetOwnerAttacking(bool bValue) const;
 	float OwnerMaxHealth();
 	int32 CountOthersAttacking(int32& OutMaxAllowed) const;
 	const FMeleeAttack* CurrentAttack() const;
 	bool IsAlive() const;
 	float Now() const;
+
+	UFUNCTION()
+	void HandleAggroed(EAggroReason Reason);
 
 	UFUNCTION()
 	void HandleOwnerDamaged(AActor* DamagedActor, float Damage, const UDamageType* DamageType, AController* InstigatedBy, AActor* DamageCauser);
@@ -390,6 +466,10 @@ private:
 	float LastDamageTime = -1000.f;
 	float StaggerImmuneUntil = 0.f;
 	float CachedMaxHealth = 0.f;
+
+	// Strike trails that are playing right now.
+	UPROPERTY()
+	TArray<TObjectPtr<UNiagaraComponent>> ActiveTrails;
 
 	// The idle / run clip playing right now (null while an attack or stagger clip has the mesh).
 	UPROPERTY()
