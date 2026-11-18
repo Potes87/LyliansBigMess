@@ -8,7 +8,7 @@
 #include "MeleeBrainComponent.generated.h"
 
 class UEnemyAwarenessComponent;
-class UAnimMontage;
+class UAnimSequenceBase;
 class USoundBase;
 class ACharacter;
 class APawn;
@@ -82,6 +82,18 @@ struct FMeleeAttack
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Movement")
 	bool bLeap = false;
 
+	// After the strike it stumbles this much further forward while recovering (0 = stays put). Matches a step in the animation.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Movement", meta = (ClampMin = "0"))
+	float RecoverStepDistance = 0.f;
+
+	// The stumble starts this long into the recovery...
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Movement", meta = (ClampMin = "0"))
+	float RecoverStepDelay = 0.1f;
+
+	// ...and takes this long.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Movement", meta = (ClampMin = "0.05"))
+	float RecoverStepTime = 0.3f;
+
 	// ---- Hit shape: a fan on the ground in front of the enemy ----
 
 	// How far in front of the enemy the hit reaches.
@@ -96,16 +108,16 @@ struct FMeleeAttack
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Hit", meta = (ClampMin = "0"))
 	float DamageMultiplier = 1.f;
 
-	// ---- Looks and sound (all optional) ----
+	// ---- Looks and sound (all optional). Plain animation clips, one per phase, played from their first frame. ----
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Animation")
-	TObjectPtr<UAnimMontage> WindUpAnim = nullptr;
+	TObjectPtr<UAnimSequenceBase> WindUpAnim = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Animation")
-	TObjectPtr<UAnimMontage> StrikeAnim = nullptr;
+	TObjectPtr<UAnimSequenceBase> StrikeAnim = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Animation")
-	TObjectPtr<UAnimMontage> RecoverAnim = nullptr;
+	TObjectPtr<UAnimSequenceBase> RecoverAnim = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Sound")
 	TObjectPtr<USoundBase> WindUpSound = nullptr;
@@ -138,6 +150,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FMeleeSignal);
  *
  * Crowds: only MaxSimultaneousAttacks enemies may be winding up or striking at the same moment, and (with Awareness
  * "Spread Out") only enemies holding an attack spot may start. So a pack takes turns and every tell can be read.
+ *
+ * Animation: give it clips (Idle, Run, one per attack phase, Stagger) and it plays them itself on the mesh, each from
+ * its first frame, with no Animation Blueprint. Leave them empty and the enemy keeps whatever animation setup it has.
  *
  * It sets the Blueprint bool "bIsAttacking" on the owner while it is busy, so Awareness leaves the feet alone.
  * Damage is the owner's Blueprint "AttackDamage" (already scaled by the enemy's level) x the attack's multiplier.
@@ -259,7 +274,25 @@ public:
 	bool bStaggerDuringStrike = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Stagger")
-	TObjectPtr<UAnimMontage> StaggerAnim = nullptr;
+	TObjectPtr<UAnimSequenceBase> StaggerAnim = nullptr;
+
+	// ---- Standing and running (played by the brain whenever it is not attacking or staggered) ----
+
+	// Looping clip while it stands still.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Animation")
+	TObjectPtr<UAnimSequenceBase> IdleAnim = nullptr;
+
+	// Looping clip while it moves.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Animation")
+	TObjectPtr<UAnimSequenceBase> RunAnim = nullptr;
+
+	// Faster than this (units per second) counts as moving.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Animation", meta = (ClampMin = "0"))
+	float RunSpeedThreshold = 40.f;
+
+	// Speed of the run clip. Raise it if the feet look like they slide, lower it if they spin.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Animation", meta = (ClampMin = "0.1"))
+	float RunPlayRate = 1.f;
 
 	// ---- Testing aids (turn both off once the real animations are in) ----
 
@@ -293,7 +326,8 @@ private:
 	void StopSliding();
 	void UpdateLean();
 	void DrawDebug() const;
-	void PlayAnim(UAnimMontage* Montage) const;
+	void PlayAnim(UAnimSequenceBase* Anim, bool bLoop = false, float Rate = 1.f) const;
+	void UpdateLocomotion();
 	void PlaySound(USoundBase* Sound) const;
 	void SetOwnerAttacking(bool bValue) const;
 	float OwnerMaxHealth();
@@ -325,6 +359,10 @@ private:
 	float LastDamageTime = -1000.f;
 	float StaggerImmuneUntil = 0.f;
 	float CachedMaxHealth = 0.f;
+
+	// The idle / run clip playing right now (null while an attack or stagger clip has the mesh).
+	UPROPERTY()
+	TObjectPtr<UAnimSequenceBase> CurrentLoco;
 
 	FQuat MeshBaseRotation = FQuat::Identity;
 	bool bHasMeshBase = false;

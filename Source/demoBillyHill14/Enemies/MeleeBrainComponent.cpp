@@ -5,7 +5,7 @@
 #include "EnemyAwarenessComponent.h"
 #include "../Stats/CombatHelpers.h"
 #include "AIController.h"
-#include "Animation/AnimMontage.h"
+#include "Animation/AnimSequenceBase.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
@@ -47,6 +47,7 @@ UMeleeBrainComponent::UMeleeBrainComponent()
 	// Starting numbers for the Ashling. Change them per enemy in the Blueprint.
 	FMeleeAttack Slash;
 	Slash.Name = TEXT("Slash");
+	Slash.RecoverStepDistance = 45.f;   // the slash animation takes one catch step forward while it recovers
 
 	FMeleeAttack Leap;
 	Leap.Name = TEXT("Leap");
@@ -203,12 +204,28 @@ int32 UMeleeBrainComponent::CountOthersAttacking(int32& OutMaxAllowed) const
 	return Count;
 }
 
-void UMeleeBrainComponent::PlayAnim(UAnimMontage* Montage) const
+void UMeleeBrainComponent::PlayAnim(UAnimSequenceBase* Anim, bool bLoop, float Rate) const
 {
-	if (!Montage) return;
-	if (ACharacter* Char = Cast<ACharacter>(GetOwner()))
+	if (!Anim) return;
+	const ACharacter* Char = Cast<ACharacter>(GetOwner());
+	USkeletalMeshComponent* Mesh = Char ? Char->GetMesh() : nullptr;
+	if (!Mesh || Mesh->IsSimulatingPhysics()) return;
+	// Straight onto the mesh, from the first frame: the snap into the pose is the point.
+	Mesh->PlayAnimation(Anim, bLoop);
+	Mesh->SetPlayRate(Rate);
+}
+
+void UMeleeBrainComponent::UpdateLocomotion()
+{
+	if (State != EMeleeState::Idle || (!IdleAnim && !RunAnim)) return;
+	const AActor* Owner = GetOwner();
+	if (!Owner) return;
+	const bool bMoving = Owner->GetVelocity().Size2D() > RunSpeedThreshold;
+	UAnimSequenceBase* Want = (bMoving && RunAnim) ? RunAnim.Get() : (IdleAnim ? IdleAnim.Get() : RunAnim.Get());
+	if (Want && Want != CurrentLoco)
 	{
-		Char->PlayAnimMontage(Montage);
+		CurrentLoco = Want;
+		PlayAnim(Want, true, Want == RunAnim ? RunPlayRate : 1.f);
 	}
 }
 
@@ -259,6 +276,7 @@ void UMeleeBrainComponent::Think()
 {
 	if (State != EMeleeState::Idle) return; // the tick owns it while it is busy
 	if (!IsAlive()) return;
+	UpdateLocomotion();
 
 	APawn* Pawn = Cast<APawn>(GetOwner());
 	APawn* Player = UGameplayStatics::GetPlayerPawn(this, 0);
@@ -337,6 +355,7 @@ void UMeleeBrainComponent::StartAttack(int32 Index)
 
 	TakeTheFeet();
 	StopSliding();
+	CurrentLoco = nullptr;
 	EnterPhase(EMeleeState::WindUp, Attack.WindUpTime);
 	PlayAnim(Attack.WindUpAnim);
 	PlaySound(Attack.WindUpSound);
@@ -454,6 +473,7 @@ void UMeleeBrainComponent::EndAttack()
 			}
 		}
 	}
+	UpdateLocomotion(); // back to idle / run straight away, so it never sits on the last frame of an attack clip
 	if (bWasBusy)
 	{
 		OnAttackEnded.Broadcast();
@@ -506,17 +526,8 @@ void UMeleeBrainComponent::BeginStagger()
 	StaggerDamage = 0.f;
 	StaggerImmuneUntil = Now() + StaggerTime + StaggerImmunityTime;
 
-	if (ACharacter* Char = Cast<ACharacter>(GetOwner()))
-	{
-		if (StaggerAnim)
-		{
-			Char->PlayAnimMontage(StaggerAnim);
-		}
-		else
-		{
-			Char->StopAnimMontage(); // cut the wind-up animation short
-		}
-	}
+	CurrentLoco = nullptr;
+	PlayAnim(StaggerAnim);
 	OnStaggered.Broadcast();
 }
 
@@ -602,6 +613,23 @@ void UMeleeBrainComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
 		break;
 	}
 	case EMeleeState::Recover:
+		// A short stumble forward after its own swing (speed ramps up then down, so it covers RecoverStepDistance).
+		if (Attack && Char && Attack->RecoverStepDistance > 0.f)
+		{
+			const float U = (T - Attack->RecoverStepDelay) / FMath::Max(Attack->RecoverStepTime, 0.05f);
+			UCharacterMovementComponent* Move = Char->GetCharacterMovement();
+			if (U >= 0.f && U <= 1.f && Move && Move->IsMovingOnGround())
+			{
+				const float Speed = Attack->RecoverStepDistance / FMath::Max(Attack->RecoverStepTime, 0.05f) * 1.5708f * FMath::Sin(U * PI);
+				Move->Velocity = FVector(LockedDir.X * Speed, LockedDir.Y * Speed, Move->Velocity.Z);
+			}
+		}
+		if (T >= PhaseLength)
+		{
+			EndAttack();
+			return;
+		}
+		break;
 	case EMeleeState::Stagger:
 		if (T >= PhaseLength)
 		{
