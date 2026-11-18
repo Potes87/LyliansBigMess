@@ -418,6 +418,7 @@ void UMeleeBrainComponent::StartAttack(int32 Index)
 	const FMeleeAttack& Attack = Attacks[Index];
 
 	bHitDone = false;
+	bSecondHitArmed = false;
 	LungeSpeed = 0.f;
 	if (const AActor* Owner = GetOwner())
 	{
@@ -723,6 +724,12 @@ void UMeleeBrainComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
 			{
 				Move->Velocity = FVector(LockedDir.X * LungeSpeed, LockedDir.Y * LungeSpeed, Move->Velocity.Z);
 			}
+		}
+		// Double attack: part way through the strike the hit shape arms once more.
+		if (Attack->SecondHitDelay > 0.f && !bSecondHitArmed && T >= Attack->SecondHitDelay)
+		{
+			bSecondHitArmed = true;
+			bHitDone = false;
 		}
 		if (!bHitDone && T >= Attack->HitDelay)
 		{

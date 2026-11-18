@@ -72,6 +72,11 @@ struct FMeleeAttack
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Timing", meta = (ClampMin = "0"))
 	float HitDelay = 0.f;
 
+	// A double attack: this long into the strike the hit shape arms again, so the same strike can land a second hit.
+	// 0 = a single hit (the normal case). Set it later than Hit Delay and earlier than Strike Time.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Timing", meta = (ClampMin = "0"))
+	float SecondHitDelay = 0.f;
+
 	// How long it stands open afterwards.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Timing", meta = (ClampMin = "0"))
 	float RecoverTime = 1.0f;
@@ -465,6 +470,7 @@ private:
 	FVector LockedTarget = FVector::ZeroVector;   // where the player was at aim lock
 	float LungeSpeed = 0.f;
 	bool bHitDone = false;
+	bool bSecondHitArmed = false;     // the second hit of a double attack has been switched on
 
 	float StaggerDamage = 0.f;        // damage taken recently, counted toward a stagger
 	float LastDamageTime = -1000.f;
