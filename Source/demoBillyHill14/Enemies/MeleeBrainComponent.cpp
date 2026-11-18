@@ -632,7 +632,17 @@ void UMeleeBrainComponent::BeginStagger()
 	StaggerImmuneUntil = Now() + StaggerTime + StaggerImmunityTime;
 
 	CurrentLoco = nullptr;
-	PlayAnim(StaggerAnim);
+	// One of the stagger clips at random.
+	TArray<UAnimSequenceBase*> Choices;
+	if (StaggerAnim) Choices.Add(StaggerAnim);
+	for (UAnimSequenceBase* Variant : StaggerAnimVariants)
+	{
+		if (Variant) Choices.Add(Variant);
+	}
+	if (Choices.Num() > 0)
+	{
+		PlayAnim(Choices[FMath::RandRange(0, Choices.Num() - 1)]);
+	}
 	OnStaggered.Broadcast();
 }
 

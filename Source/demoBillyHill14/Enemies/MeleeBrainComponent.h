@@ -328,6 +328,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Stagger")
 	TObjectPtr<UAnimSequenceBase> StaggerAnim = nullptr;
 
+	// More stagger clips. Each stagger picks one at random from Stagger Anim and these, so it does not always look the same.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee Brain|Stagger")
+	TArray<TObjectPtr<UAnimSequenceBase>> StaggerAnimVariants;
+
 	// ---- Alert: the moment it notices the player ----
 
 	// Stop for a moment and react when it first notices the player, before it comes running.
