@@ -24,7 +24,7 @@ void UBossBrainComponent::BeginPlay()
 
 	if (AActor* Owner = GetOwner())
 	{
-		Owner->OnTakeAnyDamage.AddDynamic(this, &UBossBrainComponent::HandleOwnerDamaged);
+		Owner->OnTakeAnyDamage.AddUniqueDynamic(this, &UBossBrainComponent::HandleOwnerDamaged);   // unique: BeginPlay can run twice when a cell streams back in
 	}
 
 	NextWanderTime = Now() + FMath::FRandRange(WanderWaitMin, FMath::Max(WanderWaitMin, WanderWaitMax));

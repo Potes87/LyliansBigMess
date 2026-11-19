@@ -29,7 +29,7 @@ void ABreakableProp::BeginPlay()
 	Super::BeginPlay();
 	if (ImpactBreakImpulse > 0.f)
 	{
-		Mesh->OnComponentHit.AddDynamic(this, &ABreakableProp::HandleMeshHit);
+		Mesh->OnComponentHit.AddUniqueDynamic(this, &ABreakableProp::HandleMeshHit);   // unique: BeginPlay can run twice when a cell streams back in
 	}
 }
 

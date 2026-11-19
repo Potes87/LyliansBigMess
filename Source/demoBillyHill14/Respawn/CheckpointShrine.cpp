@@ -35,7 +35,9 @@ ACheckpointShrine::ACheckpointShrine()
 void ACheckpointShrine::BeginPlay()
 {
 	Super::BeginPlay();
-	TouchRange->OnComponentBeginOverlap.AddDynamic(this, &ACheckpointShrine::HandleOverlap);
+	// AddUnique: World Partition can stream a shrine out and back in while the same actor object is still alive,
+	// which runs BeginPlay a second time. A plain AddDynamic then trips an ensure (already bound).
+	TouchRange->OnComponentBeginOverlap.AddUniqueDynamic(this, &ACheckpointShrine::HandleOverlap);
 }
 
 FName ACheckpointShrine::GetShrineId() const
