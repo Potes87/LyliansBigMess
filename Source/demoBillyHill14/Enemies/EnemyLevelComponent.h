@@ -87,6 +87,8 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	// Every enemy has this component, so it is also what tells the respawn system an enemy started or ended.
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
 	int32 DecideLevel() const;

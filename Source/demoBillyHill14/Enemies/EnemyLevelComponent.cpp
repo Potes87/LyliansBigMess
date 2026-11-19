@@ -5,6 +5,7 @@
 #include "EnemyLevelZone.h"
 #include "EngineUtils.h"
 #include "Engine/World.h"
+#include "../Respawn/RespawnSubsystem.h"
 #include "UObject/UnrealType.h"
 
 namespace
@@ -73,6 +74,11 @@ void UEnemyLevelComponent::BeginPlay()
 	if (bApplied) return;
 	bApplied = true;
 
+	if (URespawnSubsystem* Respawn = URespawnSubsystem::Get(this))
+	{
+		Respawn->EnemyStarted(GetOwner(), LevelOverride);
+	}
+
 	Level = FMath::Clamp(DecideLevel(), 1, FMath::Max(1, MaxLevel));
 	const int32 Above = Level - 1;
 	HealthMult = (float)FMath::Pow((double)HealthGrowth, (double)Above);
@@ -87,6 +93,15 @@ void UEnemyLevelComponent::BeginPlay()
 		ApplyHealth();
 	}
 	OnLevelApplied.Broadcast(Level);
+}
+
+void UEnemyLevelComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (URespawnSubsystem* Respawn = URespawnSubsystem::Get(this))
+	{
+		Respawn->EnemyEnded(GetOwner(), EndPlayReason);
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void UEnemyLevelComponent::ApplyHealth()
