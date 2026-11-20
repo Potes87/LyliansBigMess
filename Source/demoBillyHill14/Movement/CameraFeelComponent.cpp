@@ -369,7 +369,10 @@ void UCameraFeelComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
 	{
 		if (UCameraComponent* Cam = Camera.Get())
 		{
-			const float FOV = BaseFOV + (SprintFOV * SprintAlpha * MoveAlpha * (1.f - AimAlpha) + DashFOVKick * Dash.X) * FMath::Min(Intensity, 1.f);
+			// Scoped: the scope's field of view replaces the normal one, and the sprint / dash kicks shrink with the zoom.
+			const float Base = ScopeFOV > 0.f ? ScopeFOV : BaseFOV;
+			const float Zoom = Base / FMath::Max(BaseFOV, 1.f);
+			const float FOV = Base + (SprintFOV * SprintAlpha * MoveAlpha * (1.f - AimAlpha) + DashFOVKick * Dash.X) * FMath::Min(Intensity, 1.f) * Zoom;
 			Cam->SetFieldOfView(FOV);
 		}
 	}

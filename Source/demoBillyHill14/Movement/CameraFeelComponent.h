@@ -344,6 +344,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Camera Feel")
 	void KickDash(FVector Direction);
 
+	// Scope zoom: while above 0 this replaces the normal field of view. Set by WeaponScopeComponent; 0 = no zoom.
+	UFUNCTION(BlueprintCallable, Category = "Camera Feel")
+	void SetScopeFOV(float InFOV) { ScopeFOV = FMath::Max(0.f, InFOV); }
+
+	// The camera's normal (unzoomed) field of view.
+	UFUNCTION(BlueprintPure, Category = "Camera Feel")
+	float GetNormalFOV() const { return BaseFOV; }
+
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 protected:
@@ -378,6 +386,7 @@ private:
 	FVector BaseLocation = FVector::ZeroVector;
 	FQuat BaseRotation = FQuat::Identity;
 	float BaseFOV = 90.f;
+	float ScopeFOV = 0.f;   // above 0 = scoped (see SetScopeFOV)
 
 	const FBoolProperty* AimProp = nullptr;
 	const FBoolProperty* RunProp = nullptr;
