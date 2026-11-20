@@ -101,6 +101,45 @@ struct FRangedAttack
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Shot", meta = (ClampMin = "0", ClampMax = "20"))
 	float AimSpread = 0.5f;
 
+	// Extra aim error in degrees when the player is moving at full speed (none when they stand still).
+	// This is what makes "keep moving" a real defence against a common shooter.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Shot", meta = (ClampMin = "0", ClampMax = "20"))
+	float MovingSpread = 0.f;
+
+	// How well it shoots ahead of a moving player. 0 = at where they are now (a player who keeps strafing is missed).
+	// 1 = exactly where they will be (only a change of direction, a jump or a dash gets out of the way).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Shot", meta = (ClampMin = "0", ClampMax = "1"))
+	float AimLead = 0.f;
+
+	// Draw the aim line for this attack. Turn it off for common shooters: their tell is the pose, a glow and a sound.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Shot")
+	bool bShowAimLine = true;
+
+	// Bullets fired at the same moment, spread side to side over Fan Angle (a shotgun). 1 = one normal bullet.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Shot", meta = (ClampMin = "1", ClampMax = "24"))
+	int32 PelletCount = 1;
+
+	// Total width of the fan in degrees, from the leftmost bullet to the rightmost.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Shot", meta = (ClampMin = "0", ClampMax = "180"))
+	float FanAngle = 24.f;
+
+	// Lobbed: the shot flies in an arc and lands on the ground where the player stood when the aim locked (a grenade).
+	// Projectile Speed is ignored; Lob Flight Time decides how fast it gets there. There is no aim line for a lobbed shot.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Lob")
+	bool bLobbed = false;
+
+	// Seconds the lobbed shot is in the air. Longer = a higher arc and more time to get out of the way.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Lob", meta = (ClampMin = "0.2", ClampMax = "6"))
+	float LobFlightTime = 1.1f;
+
+	// How heavy the lobbed shot is. 1 = normal gravity. Higher = a steeper, snappier arc for the same flight time.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Lob", meta = (ClampMin = "0.1", ClampMax = "6"))
+	float LobGravityScale = 1.f;
+
+	// A warning mark on the ground where the lobbed shot will land, shown from the moment the aim locks.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Lob")
+	TObjectPtr<UNiagaraSystem> LandingFX;
+
 	// Clips. One per phase, like the melee attacks. The fire clip restarts on every shot of a burst.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Animation")
 	TObjectPtr<UAnimSequenceBase> AimAnim;
@@ -247,6 +286,15 @@ public:
 	// It only starts an attack when the player is within this distance.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ranged Brain|Shooting", meta = (ClampMin = "0"))
 	float MaxShootRange = 2500.f;
+
+	// At most this many ranged enemies aim or fire at the same moment. The others keep moving until there is room.
+	// 0 = no limit. When enemies with different numbers are in one fight, the biggest number counts.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ranged Brain|Shooting", meta = (ClampMin = "0"))
+	int32 MaxSimultaneousShooters = 4;
+
+	// The player's speed that counts as "moving at full speed" for an attack's Moving Spread (units per second).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ranged Brain|Shooting", meta = (ClampMin = "1"))
+	float PlayerFullSpeed = 600.f;
 
 	// How fast it turns to keep its aim on the player (degrees per second).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ranged Brain|Shooting", meta = (ClampMin = "0"))
@@ -475,6 +523,10 @@ private:
 	void SpawnAtMuzzle(UNiagaraSystem* System, bool bAttach);
 	const FRangedAttack* CurrentAttack() const;
 	FVector AimPointNow() const;
+	FVector LobLandingPoint() const;
+	bool ShootCapFull() const;
+
+	static TArray<TWeakObjectPtr<URangedBrainComponent>> AllBrains;
 
 	bool IsAlive() const;
 	FVector MuzzleLocation() const;

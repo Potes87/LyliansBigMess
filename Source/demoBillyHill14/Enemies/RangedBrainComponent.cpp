@@ -30,6 +30,8 @@
 #include "TimerManager.h"
 #include "UObject/UnrealType.h"
 
+TArray<TWeakObjectPtr<URangedBrainComponent>> URangedBrainComponent::AllBrains;
+
 namespace
 {
 	float RangedReadNumber(const UObject* Object, const TCHAR* Name, float Default)
@@ -108,6 +110,9 @@ void URangedBrainComponent::BeginPlay()
 		}
 	}
 
+	AllBrains.RemoveAll([](const TWeakObjectPtr<URangedBrainComponent>& B) { return !B.IsValid(); });
+	AllBrains.AddUnique(this);
+
 	ReadyTime.Init(0.f, Attacks.Num());
 	SideSign = FMath::RandBool() ? 1.f : -1.f;
 	GetWorld()->GetTimerManager().SetTimer(ThinkTimer, this, &URangedBrainComponent::Think, ThinkInterval, true,
@@ -120,6 +125,7 @@ void URangedBrainComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		World->GetTimerManager().ClearTimer(ThinkTimer);
 	}
+	AllBrains.RemoveAll([this](const TWeakObjectPtr<URangedBrainComponent>& B) { return !B.IsValid() || B.Get() == this; });
 	StopAimFX();
 	HideAimLine();
 	if (AimLine)
@@ -241,9 +247,49 @@ FVector URangedBrainComponent::AimPointNow() const
 {
 	if (const APawn* Player = UGameplayStatics::GetPlayerPawn(this, 0))
 	{
-		return Player->GetActorLocation() + FVector(0.f, 0.f, AimHeightOffset);
+		FVector Point = Player->GetActorLocation() + FVector(0.f, 0.f, AimHeightOffset);
+
+		// Shoot ahead of a moving player: where they will be when the bullet gets there, scaled by the attack's Aim Lead.
+		// Only their speed along the ground counts, so a jump still gets them out of the way.
+		const FRangedAttack* Attack = CurrentAttack();
+		if (Attack && Attack->AimLead > 0.f)
+		{
+			float FlightTime = 0.f;
+			if (Attack->bLobbed)
+			{
+				FlightTime = Attack->LobFlightTime;
+			}
+			else if (Attack->ProjectileSpeed > 1.f)
+			{
+				FlightTime = (float)FVector::Dist(MuzzleLocation(), Point) / Attack->ProjectileSpeed;
+			}
+			FVector Velocity = Player->GetVelocity();
+			Velocity.Z = 0.f;
+			Point += Velocity * FMath::Min(FlightTime, 2.f) * Attack->AimLead;
+		}
+		return Point;
 	}
 	return LockedAim;
+}
+
+bool URangedBrainComponent::ShootCapFull() const
+{
+	int32 MaxAllowed = MaxSimultaneousShooters;
+	if (MaxAllowed <= 0) return false;
+	int32 Count = 0;
+	const UWorld* World = GetWorld();
+	for (const TWeakObjectPtr<URangedBrainComponent>& Weak : AllBrains)
+	{
+		const URangedBrainComponent* Other = Weak.Get();
+		if (!Other || Other == this || Other->GetWorld() != World) continue;
+		if (Other->State == ERangedState::Aim || Other->State == ERangedState::Fire)
+		{
+			++Count;
+			if (Other->MaxSimultaneousShooters <= 0) return false;   // someone in this fight has no limit
+			MaxAllowed = FMath::Max(MaxAllowed, Other->MaxSimultaneousShooters);
+		}
+	}
+	return Count >= MaxAllowed;
 }
 
 FVector URangedBrainComponent::MuzzleLocation() const
@@ -361,6 +407,14 @@ void URangedBrainComponent::UpdateAimLine()
 	if (!bAimLine || !AimLineMaterial || !AimLineMesh || !GetOwner()) return;
 	UWorld* World = GetWorld();
 	if (!World) return;
+
+	// A lobbed shot does not fly along a straight line, so a line would lie to the player.
+	// And an attack can simply have its line turned off (common shooters).
+	if (const FRangedAttack* Attack = CurrentAttack(); Attack && (Attack->bLobbed || !Attack->bShowAimLine))
+	{
+		HideAimLine();
+		return;
+	}
 
 	if (!AimLine)
 	{
@@ -599,6 +653,13 @@ void URangedBrainComponent::TickReposition(float DeltaTime, APawn* Pawn, AAICont
 	}
 	if (Now() < NextAttackTime) return;
 
+	if (bCanShootFromHere && ShootCapFull())
+	{
+		// Enough of the others are shooting already: keep moving and look again in a moment.
+		NextAttackTime = Now() + FMath::FRandRange(0.3f, 0.7f);
+		BeginReposition(false);
+		return;
+	}
 	if (bCanShootFromHere)
 	{
 		const int32 Index = PickAttack(Dist);
@@ -686,37 +747,84 @@ void URangedBrainComponent::FireOne()
 		LockedAim = AimPointNow();
 	}
 	const FVector From = MuzzleLocation();
-	FVector Dir = (LockedAim - From).GetSafeNormal();
-	if (Dir.IsNearlyZero()) Dir = Pawn->GetActorForwardVector();
-	if (Attack->AimSpread > 0.f)
-	{
-		Dir = FMath::VRandCone(Dir, FMath::DegreesToRadians(Attack->AimSpread));
-	}
 
 	PlayAnim(Attack->FireAnim);   // restarts on every shot of a burst
 	PlaySound(Attack->FireSound);
 	SpawnAtMuzzle(Attack->MuzzleFX, false);
 
 	UClass* Class = Attack->ProjectileClass ? Attack->ProjectileClass.Get() : ProjectileClass.Get();
-	AActor* Projectile = nullptr;
-	if (Class)
+	if (!Class) return;
+
+	// A lobbed shot: the launch velocity that lands it on the target after Lob Flight Time.
+	const float Gravity = GetWorld()->GetGravityZ() * Attack->LobGravityScale;
+	const float FlightTime = FMath::Max(Attack->LobFlightTime, 0.2f);
+	FVector LobVelocity = FVector::ZeroVector;
+	if (Attack->bLobbed)
 	{
+		LobVelocity = (LobLandingPoint() - From) / FlightTime;
+		LobVelocity.Z -= 0.5f * Gravity * FlightTime;
+	}
+
+	FVector AimDir = (LockedAim - From).GetSafeNormal();
+	if (AimDir.IsNearlyZero()) AimDir = Pawn->GetActorForwardVector();
+
+	// A moving player is harder to hit.
+	float Spread = Attack->AimSpread;
+	if (Attack->MovingSpread > 0.f)
+	{
+		if (const APawn* Player = UGameplayStatics::GetPlayerPawn(this, 0))
+		{
+			Spread += Attack->MovingSpread * FMath::Clamp((float)Player->GetVelocity().Size2D() / FMath::Max(PlayerFullSpeed, 1.f), 0.f, 1.f);
+		}
+	}
+
+	// One bullet, or several at once spread side to side (a fan).
+	const int32 Pellets = FMath::Clamp(Attack->PelletCount, 1, 24);
+	for (int32 i = 0; i < Pellets; ++i)
+	{
+		const float Yaw = Pellets > 1 ? Attack->FanAngle * ((float)i / (float)(Pellets - 1) - 0.5f) : 0.f;
+
+		FVector Velocity;
+		if (Attack->bLobbed)
+		{
+			Velocity = LobVelocity.RotateAngleAxis(Yaw, FVector::UpVector);
+			if (Spread > 0.f)
+			{
+				Velocity = FMath::VRandCone(Velocity.GetSafeNormal(), FMath::DegreesToRadians(Spread)) * Velocity.Size();
+			}
+		}
+		else
+		{
+			FVector Dir = AimDir.RotateAngleAxis(Yaw, FVector::UpVector);
+			if (Spread > 0.f)
+			{
+				Dir = FMath::VRandCone(Dir, FMath::DegreesToRadians(Spread));
+			}
+			Velocity = Dir * Attack->ProjectileSpeed;   // zero when the projectile keeps its own speed
+			if (Velocity.IsNearlyZero()) Velocity = Dir;
+		}
+
 		FActorSpawnParameters Params;
 		Params.Owner = Pawn;
 		Params.Instigator = Pawn; // enemy level damage scaling reads this
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		Projectile = GetWorld()->SpawnActor<AActor>(Class, From, Dir.Rotation(), Params);
-		if (Projectile && Attack->ProjectileSpeed > 0.f)
+		AActor* Projectile = GetWorld()->SpawnActor<AActor>(Class, From, Velocity.Rotation(), Params);
+		if (!Projectile) continue;
+
+		if (UProjectileMovementComponent* PM = Projectile->FindComponentByClass<UProjectileMovementComponent>())
 		{
-			if (UProjectileMovementComponent* PM = Projectile->FindComponentByClass<UProjectileMovementComponent>())
+			if (Attack->bLobbed)
+			{
+				PM->ProjectileGravityScale = Attack->LobGravityScale;
+				PM->MaxSpeed = 0.f;   // no limit: it speeds up on the way down
+				PM->Velocity = Velocity;
+			}
+			else if (Attack->ProjectileSpeed > 0.f)
 			{
 				PM->MaxSpeed = FMath::Max(PM->MaxSpeed, Attack->ProjectileSpeed);
-				PM->Velocity = Dir * Attack->ProjectileSpeed;
+				PM->Velocity = Velocity;
 			}
 		}
-	}
-	if (Projectile)
-	{
 		if (Attack->TracerFX && Projectile->GetRootComponent())
 		{
 			UNiagaraFunctionLibrary::SpawnSystemAttached(Attack->TracerFX, Projectile->GetRootComponent(), NAME_None, FVector::ZeroVector,
@@ -724,6 +832,24 @@ void URangedBrainComponent::FireOne()
 		}
 		OnFire.Broadcast(Projectile);
 	}
+}
+
+FVector URangedBrainComponent::LobLandingPoint() const
+{
+	// The ground under the spot it locked onto (the locked spot itself is at the player's chest).
+	const UWorld* World = GetWorld();
+	if (!World) return LockedAim;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(RangedLobGround), false, GetOwner());
+	if (const APawn* Player = UGameplayStatics::GetPlayerPawn(this, 0))
+	{
+		Params.AddIgnoredActor(Player);
+	}
+	FHitResult Hit;
+	if (World->LineTraceSingleByChannel(Hit, LockedAim, LockedAim - FVector(0.f, 0.f, 1500.f), ECC_Visibility, Params))
+	{
+		return Hit.ImpactPoint;
+	}
+	return LockedAim;
 }
 
 void URangedBrainComponent::BeginRecover()
@@ -891,6 +1017,10 @@ void URangedBrainComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 				bAimLocked = true; // from here it is committed: move and it misses
 				PlaySound(LockSound);
 				SpawnAtMuzzle(LockFX, false);
+				if (Attack->bLobbed && Attack->LandingFX)
+				{
+					UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), Attack->LandingFX, LobLandingPoint());
+				}
 			}
 		}
 		UpdateAimLine();
