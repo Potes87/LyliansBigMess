@@ -748,7 +748,17 @@ void URangedBrainComponent::FireOne()
 	}
 	const FVector From = MuzzleLocation();
 
-	PlayAnim(Attack->FireAnim);   // restarts on every shot of a burst
+	// Restarts on every shot of a burst. With variants, each shot of the burst takes the next clip in the list.
+	UAnimSequenceBase* FireClip = Attack->FireAnim;
+	if (Attack->FireAnimVariants.Num() > 0)
+	{
+		const int32 Slot = (ShotsFired - 1) % (Attack->FireAnimVariants.Num() + 1);
+		if (Slot > 0 && Attack->FireAnimVariants[Slot - 1])
+		{
+			FireClip = Attack->FireAnimVariants[Slot - 1];
+		}
+	}
+	PlayAnim(FireClip);
 	PlaySound(Attack->FireSound);
 	SpawnAtMuzzle(Attack->MuzzleFX, false);
 

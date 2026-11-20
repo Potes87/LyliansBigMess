@@ -147,6 +147,11 @@ struct FRangedAttack
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Animation")
 	TObjectPtr<UAnimSequenceBase> FireAnim;
 
+	// More fire clips, so a burst is not the same kick repeated. Shot 1 plays Fire Anim, shot 2 the first one here,
+	// shot 3 the second, and so on; after the last one it starts again from Fire Anim. Empty = every shot plays Fire Anim.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Animation")
+	TArray<TObjectPtr<UAnimSequenceBase>> FireAnimVariants;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack|Animation")
 	TObjectPtr<UAnimSequenceBase> RecoverAnim;
 
